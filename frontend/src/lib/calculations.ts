@@ -17,7 +17,7 @@ export function aggregatePortfolio(positions: Position[]): AggregatedData {
     }))
   );
 
-  const holdings = aggregateAllocations(
+  const holdingsRaw = aggregateAllocations(
     activePositions.map((p) => ({
       weight: p.weight / 100,
       items: p.etfData!.holdings.map((h) => ({
@@ -26,6 +26,14 @@ export function aggregatePortfolio(positions: Position[]): AggregatedData {
       })),
     }))
   );
+  // Normalize holdings to 100% (source data only covers top positions)
+  const holdingsTotal = holdingsRaw.reduce((s, h) => s + h.weight, 0);
+  const holdings = holdingsTotal > 0
+    ? holdingsRaw.map((h) => ({
+        ...h,
+        weight: Math.round((h.weight / holdingsTotal) * 10000) / 100,
+      }))
+    : holdingsRaw;
 
   const marketCap = aggregateMarketCap(activePositions);
 
