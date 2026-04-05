@@ -5,8 +5,16 @@ services:
       dockerfile: Dockerfile
     environment:
       - VITE_API_URL=/api
+      - SERVICE_FQDN_APP
     depends_on:
       - backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`${SERVICE_FQDN_APP}`)
+      - traefik.http.routers.frontend.entrypoints=https
+      - traefik.http.routers.frontend.tls=true
+      - traefik.http.routers.frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
 
   backend:
     build:
@@ -17,21 +25,18 @@ services:
       - SCRAPE_DELAY=1.0
     depends_on:
       - redis
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.backend.rule=Host(`${SERVICE_FQDN_APP}`) && PathPrefix(`/api`)
+      - traefik.http.routers.backend.entrypoints=https
+      - traefik.http.routers.backend.tls=true
+      - traefik.http.routers.backend.tls.certresolver=letsencrypt
+      - traefik.http.services.backend.loadbalancer.server.port=8000
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "3000:80"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      - frontend
-      - backend
 
 volumes:
   redis_data:
