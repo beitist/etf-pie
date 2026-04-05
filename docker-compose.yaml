@@ -7,7 +7,14 @@ services:
       - VITE_API_URL=/api
       - SERVICE_FQDN_APP
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     labels:
       - traefik.enable=true
       - traefik.http.routers.frontend.rule=Host(`${SERVICE_FQDN_APP}`)
@@ -24,7 +31,14 @@ services:
       - REDIS_URL=redis://redis:6379
       - SCRAPE_DELAY=1.0
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     labels:
       - traefik.enable=true
       - traefik.http.routers.backend.rule=Host(`${SERVICE_FQDN_APP}`) && PathPrefix(`/api`)
@@ -37,6 +51,11 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   redis_data:
