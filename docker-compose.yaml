@@ -1,11 +1,27 @@
 services:
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_FQDN_APP
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
       - VITE_API_URL=/api
-      - SERVICE_FQDN_APP
     depends_on:
       backend:
         condition: service_healthy
@@ -15,13 +31,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.frontend.rule=Host(`${SERVICE_FQDN_APP}`)
-      - traefik.http.routers.frontend.entrypoints=https
-      - traefik.http.routers.frontend.tls=true
-      - traefik.http.routers.frontend.tls.certresolver=letsencrypt
-      - traefik.http.services.frontend.loadbalancer.server.port=3000
 
   backend:
     build:
@@ -39,13 +48,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.backend.rule=Host(`${SERVICE_FQDN_APP}`) && PathPrefix(`/api`)
-      - traefik.http.routers.backend.entrypoints=https
-      - traefik.http.routers.backend.tls=true
-      - traefik.http.routers.backend.tls.certresolver=letsencrypt
-      - traefik.http.services.backend.loadbalancer.server.port=8000
 
   redis:
     image: redis:7-alpine
