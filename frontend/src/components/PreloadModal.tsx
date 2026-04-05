@@ -5,6 +5,7 @@ interface PreloadStatus {
   done: number;
   status: "idle" | "loading" | "done";
   errors: string[];
+  phase: string;
 }
 
 export function PreloadModal() {
@@ -47,11 +48,10 @@ export function PreloadModal() {
   return (
     <div className="preload-overlay">
       <div className="preload-modal">
-        <h2>ETF-Daten werden geladen</h2>
+        <h2>ETF-Index wird aufgebaut</h2>
         <p>
-          Beliebte ETFs werden von justETF abgerufen und gecacht.
-          <br />
-          Das passiert nur beim ersten Start.
+          Suchindex wird erstellt. Beim ersten Start werden ETF-Namen
+          und ISINs von justETF geladen und lokal gecacht.
         </p>
 
         <div className="preload-progress-bar">
@@ -61,7 +61,7 @@ export function PreloadModal() {
           />
         </div>
         <p className="preload-count">
-          {status.done} / {status.total} ETFs geladen ({pct}%)
+          {status.phase || `${status.done} / ${status.total} (${pct}%)`}
         </p>
 
         {status.status === "done" && (

@@ -6,11 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from models.etf import ChartPoint, ETFProfile, ETFSearchResult
 from scraper.justetf import (
-    POPULAR_ETFS,
     get_chart_data,
     get_etf_profile,
     get_preload_progress,
-    preload_popular_etfs,
+    preload_etf_index,
     search_etf,
 )
 
@@ -31,22 +30,19 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    """Start preloading popular ETFs in the background."""
-    asyncio.create_task(preload_popular_etfs())
+    """Build local ETF index on startup (names + ISINs only)."""
+    asyncio.create_task(preload_etf_index())
 
 
 @app.get("/api/search", response_model=list[ETFSearchResult])
 async def api_search(q: str = Query(..., min_length=2)):
-    """Search ETFs by ISIN, WKN, or free text name."""
-    try:
-        return await search_etf(q)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Scraping error: {e}")
+    """Search ETFs by ISIN, WKN, or free text name (local index)."""
+    return await search_etf(q)
 
 
 @app.get("/api/etf/{isin}", response_model=ETFProfile)
 async def api_etf_profile(isin: str):
-    """Get full ETF profile with allocations."""
+    """Get full ETF profile with allocations (scraped on demand, cached 24h)."""
     try:
         return await get_etf_profile(isin)
     except Exception as e:
@@ -62,15 +58,9 @@ async def api_chart(isin: str, period: str = Query("2y")):
         raise HTTPException(status_code=502, detail=f"Scraping error: {e}")
 
 
-@app.get("/api/popular")
-async def api_popular():
-    """Return list of popular ETFs (for quick-add)."""
-    return POPULAR_ETFS
-
-
 @app.get("/api/preload-status")
 async def api_preload_status():
-    """Return preload progress for the loading modal."""
+    """Return index build progress for the loading modal."""
     return get_preload_progress()
 
 
