@@ -6,18 +6,7 @@ interface Props {
 }
 
 export function PositionRow({ position }: Props) {
-  const { mode, totalAmount, setWeight, removePosition } =
-    usePortfolioStore();
-
-  const handleSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setWeight(position.isin, Number(e.target.value));
-  };
-
-  const handleEuroInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const euro = Number(e.target.value) || 0;
-    const pct = totalAmount > 0 ? (euro / totalAmount) * 100 : 0;
-    setWeight(position.isin, pct);
-  };
+  const { setEuroAmount, removePosition } = usePortfolioStore();
 
   return (
     <div className="position-row">
@@ -36,31 +25,21 @@ export function PositionRow({ position }: Props) {
         )}
       </div>
       <div className="position-controls">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={0.5}
-          value={position.weight}
-          onChange={handleSlider}
-          className="weight-slider"
-        />
-        {mode === "percent" ? (
-          <span className="weight-display">
-            {position.weight.toFixed(1)}%
-          </span>
-        ) : (
-          <div className="euro-input">
-            <input
-              type="number"
-              value={Math.round(position.euroAmount)}
-              onChange={handleEuroInput}
-              min={0}
-              step={10}
-            />
-            <span>€</span>
-          </div>
-        )}
+        <div className="euro-input">
+          <input
+            type="number"
+            value={Math.round(position.euroAmount)}
+            onChange={(e) =>
+              setEuroAmount(position.isin, Number(e.target.value) || 0)
+            }
+            min={0}
+            step={25}
+          />
+          <span>€</span>
+        </div>
+        <span className="weight-display">
+          {position.weight.toFixed(1)}%
+        </span>
         <button
           className="remove-btn"
           onClick={() => removePosition(position.isin)}
