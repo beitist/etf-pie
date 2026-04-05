@@ -15,6 +15,28 @@ interface PortfolioState {
   loadETFData: (isin: string) => Promise<void>;
   addLimit: (limit: CountryLimit) => void;
   removeLimit: (country: string) => void;
+  getShareURL: () => string;
+  loadFromURL: () => void;
+}
+
+function encodePortfolio(totalAmount: number, positions: Position[]): string {
+  if (positions.length === 0) return "";
+  const p = positions.map((pos) => `${pos.isin}:${pos.weight.toFixed(1)}`).join(",");
+  return `#t=${totalAmount}&p=${p}`;
+}
+
+function decodePortfolio(hash: string): { totalAmount: number; entries: { isin: string; weight: number }[] } | null {
+  if (!hash || !hash.startsWith("#")) return null;
+  const params = new URLSearchParams(hash.slice(1));
+  const t = Number(params.get("t"));
+  const p = params.get("p");
+  if (!t || !p) return null;
+  const entries = p.split(",").map((s) => {
+    const [isin, w] = s.split(":");
+    return { isin, weight: Number(w) };
+  }).filter((e) => e.isin && !isNaN(e.weight));
+  if (entries.length === 0) return null;
+  return { totalAmount: t, entries };
 }
 
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
@@ -137,4 +159,27 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     set((state) => ({
       limits: state.limits.filter((l) => l.country !== country),
     })),
+
+  getShareURL: () => {
+    const { totalAmount, positions } = get();
+    const hash = encodePortfolio(totalAmount, positions);
+    return `${window.location.origin}${window.location.pathname}${hash}`;
+  },
+
+  loadFromURL: () => {
+    const decoded = decodePortfolio(window.location.hash);
+    if (!decoded) return;
+    const { totalAmount, entries } = decoded;
+    const positions: Position[] = entries.map((e) => ({
+      isin: e.isin,
+      name: e.isin,
+      weight: e.weight,
+      euroAmount: (e.weight / 100) * totalAmount,
+      etfData: null,
+    }));
+    set({ totalAmount, positions });
+    for (const e of entries) {
+      get().loadETFData(e.isin);
+    }
+  },
 }));
