@@ -426,6 +426,101 @@ body {
   color: #2563eb;
 }
 
+/* Preload Modal */
+.preload-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.preload-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem 2.5rem;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.preload-modal h2 {
+  font-size: 1.2rem;
+  color: #0f172a;
+  margin-bottom: 0.5rem;
+}
+
+.preload-modal p {
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+}
+
+.preload-progress-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.preload-progress-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.preload-count {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-bottom: 0.75rem;
+}
+
+.preload-done {
+  color: #16a34a;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.preload-errors {
+  text-align: left;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.preload-errors summary {
+  cursor: pointer;
+  color: #f59e0b;
+}
+
+.preload-errors ul {
+  padding-left: 1rem;
+  margin-top: 0.25rem;
+}
+
+.preload-skip {
+  margin-top: 0.75rem;
+  padding: 0.4rem 1.25rem;
+  background: #f1f5f9;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #64748b;
+  transition: background 0.2s;
+}
+
+.preload-skip:hover {
+  background: #e2e8f0;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .charts-grid {

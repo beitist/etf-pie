@@ -11,6 +11,7 @@ import { WarningBanner } from "./components/WarningBanner";
 import { ShareButton } from "./components/ShareButton";
 import { CountryMap } from "./components/CountryMap";
 import { SparplanSimulator } from "./components/SparplanSimulator";
+import { PreloadModal } from "./components/PreloadModal";
 import "./App.css";
 
 function App() {
@@ -37,6 +38,7 @@ function App() {
 
   return (
     <div className="app">
+      <PreloadModal />
       <header className="app-header">
         <h1>ETF Portfolio Analyzer</h1>
         <p>Diversifikationsanalyse deines ETF-Portfolios</p>

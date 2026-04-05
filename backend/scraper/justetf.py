@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import re
 
@@ -15,6 +16,8 @@ from models.etf import (
 )
 from scraper.cache import TTL_CHART, TTL_PROFILE, TTL_SEARCH, cache_get, cache_set
 
+log = logging.getLogger("scraper")
+
 SCRAPE_DELAY = float(os.getenv("SCRAPE_DELAY", "1.0"))
 _semaphore = asyncio.Semaphore(1)
 
@@ -25,11 +28,37 @@ HEADERS = {
 
 BASE_URL = "https://www.justETF.com/de"
 
+# Popular ETFs for preloading
+POPULAR_ETFS = [
+    {"isin": "IE00B4L5Y983", "name": "iShares Core MSCI World"},
+    {"isin": "IE00BKM4GZ66", "name": "iShares Core MSCI EM IMI"},
+    {"isin": "DE0002635307", "name": "iShares STOXX Europe 600"},
+    {"isin": "IE00BK5BQT80", "name": "Vanguard FTSE All-World"},
+    {"isin": "IE00B1XNHC34", "name": "iShares Global Clean Energy"},
+    {"isin": "LU0392494562", "name": "Xtrackers MSCI World"},
+    {"isin": "IE00B4L5YC18", "name": "iShares MSCI EM"},
+    {"isin": "LU0274208692", "name": "Xtrackers MSCI World Swap"},
+    {"isin": "IE00BZ163G84", "name": "Vanguard S&P 500"},
+    {"isin": "IE00B3RBWM25", "name": "Vanguard FTSE All-World"},
+    {"isin": "LU1681043599", "name": "Amundi MSCI World"},
+    {"isin": "IE00BJ0KDQ92", "name": "Xtrackers MSCI World ESG"},
+    {"isin": "LU0635178014", "name": "ComStage MSCI World"},
+    {"isin": "IE00B6R52259", "name": "iShares MSCI ACWI"},
+    {"isin": "IE00BFMXXD54", "name": "Vanguard FTSE All-World High Dividend"},
+    {"isin": "DE000A0RPWH1", "name": "iShares STOXX Global Select Dividend 100"},
+    {"isin": "IE00B0M63177", "name": "iShares MSCI EM"},
+    {"isin": "LU0908500753", "name": "Lyxor Core STOXX Europe 600"},
+    {"isin": "IE00B3XXRP09", "name": "Vanguard S&P 500"},
+    {"isin": "LU0274211480", "name": "Xtrackers DAX"},
+]
+
 
 async def _fetch(url: str) -> str:
     async with _semaphore:
+        log.info(f"FETCH {url}")
         async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
             resp = await client.get(url, headers=HEADERS)
+            log.info(f"  -> {resp.status_code} ({len(resp.text)} bytes, final URL: {resp.url})")
             resp.raise_for_status()
             await asyncio.sleep(SCRAPE_DELAY)
             return resp.text
@@ -46,25 +75,55 @@ def _parse_percent(text: str) -> float:
 
 
 async def search_etf(query: str) -> list[ETFSearchResult]:
+    log.info(f"SEARCH query='{query}'")
     cache_key = f"search:{query}"
     cached = await cache_get(cache_key)
     if cached:
+        log.info(f"  -> cache hit, {len(cached)} results")
         return [ETFSearchResult(**r) for r in cached]
 
     url = f"{BASE_URL}/find-etf.html?query={query}"
-    html = await _fetch(url)
+    try:
+        html = await _fetch(url)
+    except Exception as e:
+        log.error(f"  -> fetch failed: {e}")
+        raise
+
     soup = BeautifulSoup(html, "lxml")
+    log.debug(f"  -> page title: {soup.title.string if soup.title else 'none'}")
 
     results: list[ETFSearchResult] = []
 
     # justETF search results table
     rows = soup.select("table.table tbody tr")
+    log.info(f"  -> found {len(rows)} table rows")
+
+    if not rows:
+        # Debug: log what we see
+        tables = soup.select("table")
+        log.info(f"  -> total tables on page: {len(tables)}")
+        for i, t in enumerate(tables[:5]):
+            classes = t.get("class", [])
+            log.info(f"     table[{i}]: class={classes}, rows={len(t.select('tr'))}")
+
+        # Try alternate selectors
+        alt_rows = soup.select("table tbody tr")
+        log.info(f"  -> alternate 'table tbody tr': {len(alt_rows)} rows")
+
+        # Log first 500 chars of body for debugging
+        body = soup.select_one("body")
+        if body:
+            text = body.get_text(strip=True)[:500]
+            log.info(f"  -> body preview: {text}")
+
     for row in rows[:10]:
         name_el = row.select_one("a.productName, td:first-child a")
         if not name_el:
+            log.debug(f"  -> row has no name link, skipping")
             continue
         name = name_el.get_text(strip=True)
         href = name_el.get("href", "")
+        log.debug(f"  -> row: name='{name}', href='{href}'")
 
         # Extract ISIN from href or text
         isin_match = re.search(r"[A-Z]{2}[A-Z0-9]{10}", str(href) + " " + name)
@@ -85,24 +144,37 @@ async def search_etf(query: str) -> list[ETFSearchResult]:
             name_el = soup.select_one("h1.h2")
             name = name_el.get_text(strip=True) if name_el else query
             results.append(ETFSearchResult(name=name, isin=isin))
+            log.info(f"  -> landed on profile page: {name} ({isin})")
+
+    log.info(f"  -> SEARCH result: {len(results)} ETFs found")
+    for r in results:
+        log.info(f"     {r.isin} - {r.name}")
 
     await cache_set(cache_key, [r.model_dump() for r in results], TTL_SEARCH)
     return results
 
 
 async def get_etf_profile(isin: str) -> ETFProfile:
+    log.info(f"PROFILE isin='{isin}'")
     cache_key = f"profile:{isin}"
     cached = await cache_get(cache_key)
     if cached:
+        log.info(f"  -> cache hit")
         return ETFProfile(**cached)
 
     url = f"{BASE_URL}/etf-profile.html?isin={isin}"
-    html = await _fetch(url)
+    try:
+        html = await _fetch(url)
+    except Exception as e:
+        log.error(f"  -> fetch failed: {e}")
+        raise
+
     soup = BeautifulSoup(html, "lxml")
 
     # Name
     name_el = soup.select_one("h1.h2, h1")
     name = name_el.get_text(strip=True) if name_el else isin
+    log.info(f"  -> name: {name}")
 
     # WKN
     wkn = ""
@@ -119,6 +191,7 @@ async def get_etf_profile(isin: str) -> ETFProfile:
             val = parent.find(string=re.compile(r"\d+[,\.]\d+\s*%"))
             if val:
                 ter = _parse_percent(val)
+    log.info(f"  -> wkn={wkn}, ter={ter}")
 
     # Fund info
     replication = ""
@@ -126,6 +199,7 @@ async def get_etf_profile(isin: str) -> ETFProfile:
     fund_size = ""
 
     info_table = soup.select("table.table-quick-info tr, .etf-data tr")
+    log.info(f"  -> info table rows: {len(info_table)}")
     for row in info_table:
         label = row.select_one("td:first-child, th")
         value = row.select_one("td:last-child")
@@ -142,15 +216,19 @@ async def get_etf_profile(isin: str) -> ETFProfile:
 
     # Countries
     countries = _parse_allocation_section(soup, ["Länder", "Countries"])
+    log.info(f"  -> countries: {len(countries)}")
 
     # Sectors
     sectors = _parse_allocation_section(soup, ["Sektoren", "Sectors", "Branchen"])
+    log.info(f"  -> sectors: {len(sectors)}")
 
     # Holdings
     holdings = _parse_holdings(soup)
+    log.info(f"  -> holdings: {len(holdings)}")
 
     # Market cap
     market_cap = _parse_market_cap(soup)
+    log.info(f"  -> market_cap: large={market_cap.large}, mid={market_cap.mid}, small={market_cap.small}")
 
     profile = ETFProfile(
         name=name,
@@ -282,3 +360,39 @@ async def get_chart_data(isin: str, period: str = "2y") -> list[ChartPoint]:
     if points:
         await cache_set(cache_key, [p.model_dump() for p in points], TTL_CHART)
     return points
+
+
+_preload_done = False
+_preload_progress: dict = {"total": 0, "done": 0, "status": "idle", "errors": []}
+
+
+async def preload_popular_etfs():
+    """Preload popular ETFs into cache on startup."""
+    global _preload_done
+    if _preload_done:
+        return
+
+    _preload_progress["total"] = len(POPULAR_ETFS)
+    _preload_progress["done"] = 0
+    _preload_progress["status"] = "loading"
+    _preload_progress["errors"] = []
+
+    log.info(f"PRELOAD starting for {len(POPULAR_ETFS)} ETFs")
+    for etf in POPULAR_ETFS:
+        try:
+            log.info(f"PRELOAD {etf['isin']} ({etf['name']})")
+            await get_etf_profile(etf["isin"])
+            _preload_progress["done"] += 1
+            log.info(f"PRELOAD {_preload_progress['done']}/{_preload_progress['total']} done")
+        except Exception as e:
+            log.error(f"PRELOAD failed for {etf['isin']}: {e}")
+            _preload_progress["errors"].append(f"{etf['isin']}: {e}")
+            _preload_progress["done"] += 1
+
+    _preload_progress["status"] = "done"
+    _preload_done = True
+    log.info(f"PRELOAD complete: {_preload_progress['done']}/{_preload_progress['total']}, errors: {len(_preload_progress['errors'])}")
+
+
+def get_preload_progress() -> dict:
+    return _preload_progress

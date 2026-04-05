@@ -1,8 +1,23 @@
+import asyncio
+import logging
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from models.etf import ChartPoint, ETFProfile, ETFSearchResult
-from scraper.justetf import get_chart_data, get_etf_profile, search_etf
+from scraper.justetf import (
+    POPULAR_ETFS,
+    get_chart_data,
+    get_etf_profile,
+    get_preload_progress,
+    preload_popular_etfs,
+    search_etf,
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 
 app = FastAPI(title="ETF Portfolio Analyzer API")
 
@@ -12,6 +27,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup():
+    """Start preloading popular ETFs in the background."""
+    asyncio.create_task(preload_popular_etfs())
 
 
 @app.get("/api/search", response_model=list[ETFSearchResult])
@@ -39,6 +60,18 @@ async def api_chart(isin: str, period: str = Query("2y")):
         return await get_chart_data(isin, period)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Scraping error: {e}")
+
+
+@app.get("/api/popular")
+async def api_popular():
+    """Return list of popular ETFs (for quick-add)."""
+    return POPULAR_ETFS
+
+
+@app.get("/api/preload-status")
+async def api_preload_status():
+    """Return preload progress for the loading modal."""
+    return get_preload_progress()
 
 
 @app.get("/api/health")
