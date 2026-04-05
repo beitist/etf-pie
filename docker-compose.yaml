@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     environment:
       - SERVICE_FQDN_APP
+    networks:
+      - default
+      - coolify
     depends_on:
       frontend:
         condition: service_healthy
@@ -58,6 +61,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+networks:
+  coolify:
+    external: true
 
 volumes:
   redis_data:
