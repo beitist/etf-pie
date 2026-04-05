@@ -1,9 +1,9 @@
 """
-justETF profile scraper + ESMA-powered search index.
+ETF data provider: etfdb (primary) + justETF scraping (fallback).
 
-- Search index: built from ESMA FIRDS (7000+ ETFs, official EU data)
-- Profile data: scraped from justETF on demand (countries, sectors, holdings)
-- 3-level cache: Redis → disk → scrape
+- Search: local index from etfdb (4000+ ETFs, updated monthly)
+- Profile: etfdb data if available, justETF scraping as fallback
+- 3-level cache: Redis → disk → source
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from models.etf import (
     MarketCap,
 )
 from scraper.cache import TTL_CHART, TTL_PROFILE, cache_get, cache_set
-from scraper.esma import build_etf_index
+from scraper.etfdb import load_etfdb
 
 log = logging.getLogger("scraper")
 
@@ -41,8 +41,8 @@ HEADERS = {
 BASE_URL = "https://www.justETF.com/de"
 DATA_DIR = Path("/app/data")
 
-# Local ETF index: {isin: {name, short_name, currency}}
-_etf_index: dict[str, dict] = {}
+# Local ETF database
+_etfdb: dict[str, dict] = {}
 
 
 # ─── HTTP ────────────────────────────────────────────────────────────────
@@ -68,22 +68,25 @@ def _parse_percent(text: str) -> float:
         return 0.0
 
 
-# ─── SEARCH (ESMA-powered local index) ──────────────────────────────────
+# ─── SEARCH ──────────────────────────────────────────────────────────────
 
 async def search_etf(query: str) -> list[ETFSearchResult]:
-    """Search ETFs locally by ISIN or name substring."""
-    log.info(f"SEARCH query='{query}' (index: {len(_etf_index)} ETFs)")
+    """Search ETFs locally by ISIN, WKN, or name substring."""
+    log.info(f"SEARCH query='{query}' (db: {len(_etfdb)} ETFs)")
     q = query.strip().upper()
     results: list[ETFSearchResult] = []
 
-    for isin, data in _etf_index.items():
+    for isin, data in _etfdb.items():
         name = data.get("name", "")
-        short = data.get("short_name", "")
-        if q in isin or q in name.upper() or q in short.upper():
+        wkn = data.get("wkn", "")
+        if q in isin or q in name.upper() or (wkn and q in wkn.upper()):
             results.append(ETFSearchResult(
                 name=name,
                 isin=isin,
-                wkn=data.get("wkn", ""),
+                wkn=wkn,
+                ter=data.get("ter", 0.0),
+                replication=data.get("replication", ""),
+                distribution=data.get("distribution", ""),
             ))
         if len(results) >= 20:
             break
@@ -92,9 +95,10 @@ async def search_etf(query: str) -> list[ETFSearchResult]:
     return results
 
 
-# ─── PROFILE (scrape justETF on demand, cache aggressively) ─────────────
+# ─── PROFILE ─────────────────────────────────────────────────────────────
 
 async def get_etf_profile(isin: str) -> ETFProfile:
+    """Get ETF profile. Uses etfdb data if available, justETF scraping as fallback."""
     log.info(f"PROFILE isin='{isin}'")
 
     # L1: Redis/memory cache
@@ -103,6 +107,14 @@ async def get_etf_profile(isin: str) -> ETFProfile:
     if cached:
         log.info("  -> redis cache hit")
         return ETFProfile(**cached)
+
+    # Try etfdb first
+    db_entry = _etfdb.get(isin)
+    if db_entry and db_entry.get("countries"):
+        log.info("  -> etfdb hit (has country data)")
+        profile = _profile_from_etfdb(isin, db_entry)
+        await cache_set(cache_key, profile.model_dump(), TTL_PROFILE)
+        return profile
 
     # L2: Disk cache
     disk_path = DATA_DIR / "profiles" / f"{isin}.json"
@@ -119,25 +131,60 @@ async def get_etf_profile(isin: str) -> ETFProfile:
         except Exception as e:
             log.error(f"  -> disk cache error: {e}")
 
-    # L3: Scrape justETF
+    # L3: Scrape justETF as fallback
+    log.info("  -> falling back to justETF scraping")
+    profile = await _scrape_justetf_profile(isin)
+
+    # Save to caches
+    profile_data = profile.model_dump()
+    await cache_set(cache_key, profile_data, TTL_PROFILE)
+    (DATA_DIR / "profiles").mkdir(parents=True, exist_ok=True)
+    disk_data = {**profile_data, "_cached_at": time.time()}
+    disk_path.write_text(json.dumps(disk_data, ensure_ascii=False))
+
+    return profile
+
+
+def _profile_from_etfdb(isin: str, data: dict) -> ETFProfile:
+    """Build ETFProfile from etfdb data."""
+    return ETFProfile(
+        name=data.get("name", isin),
+        isin=isin,
+        wkn=data.get("wkn", ""),
+        ter=data.get("ter", 0.0),
+        replication=data.get("replication", ""),
+        distribution=data.get("distribution", ""),
+        fund_size=str(data.get("fund_size", "")),
+        currency=data.get("currency", "EUR"),
+        countries=[Allocation(**c) for c in data.get("countries", [])],
+        sectors=[Allocation(**s) for s in data.get("sectors", [])],
+        holdings=[Holding(name=h["name"], weight=h["weight"]) for h in data.get("holdings", [])],
+        market_cap=MarketCap(),
+    )
+
+
+async def _scrape_justetf_profile(isin: str) -> ETFProfile:
+    """Scrape full ETF profile from justETF (fallback for ETFs not in etfdb)."""
     url = f"{BASE_URL}/etf-profile.html?isin={isin}"
     try:
         html = await _fetch(url)
     except Exception as e:
         log.error(f"  -> fetch failed: {e}")
-        raise
+        # Return minimal profile from etfdb if available
+        db_entry = _etfdb.get(isin, {})
+        return ETFProfile(
+            name=db_entry.get("name", isin),
+            isin=isin,
+            wkn=db_entry.get("wkn", ""),
+            ter=db_entry.get("ter", 0.0),
+        )
 
     soup = BeautifulSoup(html, "lxml")
 
-    if "/search.html" in str(soup.find("link", rel="canonical") or ""):
-        log.warning("  -> redirected to search, ISIN might be invalid")
-
-    # Name
     name_el = soup.select_one("h1")
     name = name_el.get_text(strip=True) if name_el else isin
-    log.info(f"  -> name: {name}")
 
-    # data-overview div: TER, Ertragsverwendung, Replikation, Fondsgröße
+    # data-overview div
     ter = 0.0
     replication = ""
     distribution = ""
@@ -145,9 +192,7 @@ async def get_etf_profile(isin: str) -> ETFProfile:
 
     dov = soup.select_one("div.data-overview")
     if dov:
-        dov_text = dov.get_text(separator="|", strip=True)
-        log.info(f"  -> data-overview: {dov_text[:200]}")
-        parts = dov_text.split("|")
+        parts = dov.get_text(separator="|", strip=True).split("|")
         for i, part in enumerate(parts):
             p = part.strip()
             if p.startswith("TER") or "% p.a." in p:
@@ -163,23 +208,20 @@ async def get_etf_profile(isin: str) -> ETFProfile:
                 fund_size = parts[i + 1].strip()
                 if i + 2 < len(parts) and "Mio" in parts[i + 2]:
                     fund_size += " " + parts[i + 2].strip()
-    log.info(f"  -> ter={ter}, replication={replication}, distribution={distribution}")
 
-    # WKN
     wkn = ""
     wkn_match = re.search(r"WKN[:\s]*([A-Z0-9]{6})", soup.get_text())
     if wkn_match:
         wkn = wkn_match.group(1)
 
-    # Parse sections by heading
     countries = _parse_section_by_heading(soup, ["Länder"])
     sectors = _parse_section_by_heading(soup, ["Sektoren"])
     holdings = _parse_section_by_heading(soup, ["Größte 10 Positionen", "Zusammensetzung", "Top 10"])
     market_cap = _parse_market_cap(soup)
 
-    log.info(f"  -> countries={len(countries)}, sectors={len(sectors)}, holdings={len(holdings)}")
+    log.info(f"  -> scraped: countries={len(countries)}, sectors={len(sectors)}, holdings={len(holdings)}")
 
-    profile = ETFProfile(
+    return ETFProfile(
         name=name,
         isin=isin,
         wkn=wkn,
@@ -192,16 +234,6 @@ async def get_etf_profile(isin: str) -> ETFProfile:
         holdings=[Holding(name=a.name, weight=a.weight) for a in holdings],
         market_cap=market_cap,
     )
-
-    # Save to all caches
-    profile_data = profile.model_dump()
-    await cache_set(cache_key, profile_data, TTL_PROFILE)
-
-    (DATA_DIR / "profiles").mkdir(parents=True, exist_ok=True)
-    disk_data = {**profile_data, "_cached_at": time.time()}
-    disk_path.write_text(json.dumps(disk_data, ensure_ascii=False))
-
-    return profile
 
 
 def _parse_section_by_heading(soup: BeautifulSoup, headings: list[str]) -> list[Allocation]:
@@ -287,15 +319,16 @@ _preload_progress: dict = {"total": 0, "done": 0, "status": "idle", "errors": []
 
 
 async def preload_etf_index():
-    """Build local ETF index from ESMA FIRDS data."""
-    global _etf_index
+    """Load ETF database from etfdb GitHub repo."""
+    global _etfdb
     _preload_progress["status"] = "loading"
-    _preload_progress["phase"] = "ESMA ETF-Index laden..."
+    _preload_progress["phase"] = "ETF-Datenbank laden..."
 
     try:
-        _etf_index = await build_etf_index(_preload_progress)
+        _etfdb = await load_etfdb(_preload_progress)
+        log.info(f"ETF database loaded: {len(_etfdb)} ETFs")
     except Exception as e:
-        log.error(f"ESMA index build failed: {e}")
+        log.error(f"ETF database load failed: {e}")
         _preload_progress["errors"].append(str(e))
         _preload_progress["status"] = "done"
         _preload_progress["phase"] = f"Fehler: {e}"
