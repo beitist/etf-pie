@@ -9,24 +9,39 @@ import type { Allocation } from "../types";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
-// Map German/English country names to ISO 3166 names used in topojson
+// Map source country names (etfdb English + justETF German) → topojson names
 const COUNTRY_NAME_MAP: Record<string, string> = {
+  // etfdb → topojson (where they differ)
+  "United States": "United States of America",
+  "United Kingdom": "United Kingdom",
+  "South Korea": "South Korea",
+  "Czech Republic": "Czechia",
+  "Ivory Coast": "Côte d'Ivoire",
+  "Democratic Republic of the Congo": "Dem. Rep. Congo",
+  "Dominican Republic": "Dominican Rep.",
+  "Bosnia and Herzegovina": "Bosnia and Herz.",
+  "Central African Republic": "Central African Rep.",
+  "Equatorial Guinea": "Eq. Guinea",
+  "Solomon Islands": "Solomon Is.",
+  "South Sudan": "S. Sudan",
+  "Macedonia": "North Macedonia",
+  "Cayman Islands": "Cayman Is.",
+  "British Virgin Islands": "British Virgin Is.",
+  "U.S. Virgin Islands": "U.S. Virgin Is.",
+  "Turks and Caicos Islands": "Turks and Caicos Is.",
+  // German names (justETF fallback)
   "USA": "United States of America",
   "Vereinigte Staaten": "United States of America",
-  "UK": "United Kingdom",
   "Großbritannien": "United Kingdom",
   "Vereinigtes Königreich": "United Kingdom",
   "Schweiz": "Switzerland",
   "Deutschland": "Germany",
   "Frankreich": "France",
   "Niederlande": "Netherlands",
-  "Japan": "Japan",
   "Kanada": "Canada",
   "Australien": "Australia",
-  "China": "China",
   "Indien": "India",
   "Südkorea": "South Korea",
-  "Taiwan": "Taiwan",
   "Brasilien": "Brazil",
   "Irland": "Ireland",
   "Schweden": "Sweden",
@@ -43,16 +58,20 @@ const COUNTRY_NAME_MAP: Record<string, string> = {
   "Südafrika": "South Africa",
   "Russland": "Russia",
   "Indonesien": "Indonesia",
-  "Thailand": "Thailand",
-  "Malaysia": "Malaysia",
   "Philippinen": "Philippines",
   "Türkei": "Turkey",
   "Saudi-Arabien": "Saudi Arabia",
   "Polen": "Poland",
   "Neuseeland": "New Zealand",
-  "Portugal": "Portugal",
   "Griechenland": "Greece",
   "Kaimaninseln": "Cayman Is.",
+  "Tschechien": "Czechia",
+  "Rumänien": "Romania",
+  "Ungarn": "Hungary",
+  "Ägypten": "Egypt",
+  "Argentinien": "Argentina",
+  "Kolumbien": "Colombia",
+  "Vereinigte Arabische Emirate": "United Arab Emirates",
 };
 
 function getColor(weight: number): string {
@@ -74,8 +93,10 @@ export function CountryMap({ countries }: Props) {
   const countryWeightMap = useMemo(() => {
     const map = new Map<string, number>();
     for (const c of countries) {
+      // Try exact match first, then mapped name
       const mapped = COUNTRY_NAME_MAP[c.name] || c.name;
-      map.set(mapped.toLowerCase(), c.weight);
+      const key = mapped.toLowerCase();
+      map.set(key, (map.get(key) || 0) + c.weight);
     }
     return map;
   }, [countries]);
@@ -111,8 +132,8 @@ export function CountryMap({ countries }: Props) {
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
               geographies.map((geo) => {
-                const name = (geo.properties.name || "").toLowerCase();
-                const weight = countryWeightMap.get(name) || 0;
+                const geoName = (geo.properties.name || "").toLowerCase();
+                const weight = countryWeightMap.get(geoName) || 0;
                 return (
                   <Geography
                     key={geo.rsmKey}

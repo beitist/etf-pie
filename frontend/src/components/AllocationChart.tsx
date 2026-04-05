@@ -16,9 +16,9 @@ export function AllocationChart({ title, data }: Props) {
   if (data.length === 0) return null;
 
   return (
-    <div className="chart-card">
+    <div className="chart-card chart-card--full">
       <h3>{title}</h3>
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={400}>
         <PieChart>
           <Pie
             data={data}
@@ -26,12 +26,21 @@ export function AllocationChart({ title, data }: Props) {
             nameKey="name"
             cx="50%"
             cy="50%"
-            innerRadius={60}
-            outerRadius={110}
+            innerRadius={80}
+            outerRadius={140}
             paddingAngle={2}
-            label={({ name, value }) =>
-              `${name} ${Number(value).toFixed(1)}%`
-            }
+            label={({ name, value, x, y, textAnchor }) => (
+              <text
+                x={x}
+                y={y}
+                textAnchor={textAnchor}
+                dominantBaseline="central"
+                fontSize={11}
+                fill="#334155"
+              >
+                {`${name} ${Number(value).toFixed(1)}%`}
+              </text>
+            )}
           >
             {data.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -40,7 +49,9 @@ export function AllocationChart({ title, data }: Props) {
           <Tooltip
             formatter={(value) => `${Number(value).toFixed(2)}%`}
           />
-          <Legend />
+          <Legend
+            wrapperStyle={{ fontSize: "12px" }}
+          />
         </PieChart>
       </ResponsiveContainer>
     </div>
