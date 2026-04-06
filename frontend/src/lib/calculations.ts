@@ -17,7 +17,7 @@ export function aggregatePortfolio(positions: Position[]): AggregatedData {
     }))
   );
 
-  const holdingsRaw = aggregateAllocations(
+  const holdings = aggregateAllocations(
     activePositions.map((p) => ({
       weight: p.weight / 100,
       items: p.etfData!.holdings.map((h) => ({
@@ -26,14 +26,6 @@ export function aggregatePortfolio(positions: Position[]): AggregatedData {
       })),
     }))
   );
-  // Normalize holdings to 100% (source data only covers top positions)
-  const holdingsTotal = holdingsRaw.reduce((s, h) => s + h.weight, 0);
-  const holdings = holdingsTotal > 0
-    ? holdingsRaw.map((h) => ({
-        ...h,
-        weight: Math.round((h.weight / holdingsTotal) * 10000) / 100,
-      }))
-    : holdingsRaw;
 
   const marketCap = aggregateMarketCap(activePositions);
 
@@ -53,26 +45,36 @@ function aggregateAllocations(
     }
   }
 
-  // Pull out any existing "Sonstige"/"Other" entries and merge them
-  let sonstigeWeight = 0;
-  const entries = Array.from(map.entries()).filter(([name, weight]) => {
+  // Convert all values from 0-1 to percent, pull out "Sonstige"/"Other"
+  let sonstigePct = 0;
+  const entries: { name: string; weight: number }[] = [];
+
+  for (const [name, weight] of map.entries()) {
+    const pct = Math.round(weight * 10000) / 100;
     if (name.toLowerCase() === "sonstige" || name.toLowerCase() === "other") {
-      sonstigeWeight += weight;
-      return false;
+      sonstigePct += pct;
+    } else {
+      entries.push({ name, weight: pct });
     }
-    return true;
-  });
+  }
 
-  const result = entries
-    .map(([name, weight]) => ({ name, weight: Math.round(weight * 10000) / 100 }))
-    .sort((a, b) => b.weight - a.weight);
+  entries.sort((a, b) => b.weight - a.weight);
 
-  // Top 10 + "Sonstige" (including source "Sonstige" entries + overflow)
-  const top = result.slice(0, 10);
-  const rest = result.slice(10).reduce((sum, a) => sum + a.weight, 0);
-  const totalSonstige = Math.round((rest + sonstigeWeight * 100) * 100) / 100;
+  // Top 10 + "Sonstige" (source "Sonstige" + overflow beyond top 10)
+  const top = entries.slice(0, 10);
+  const overflow = entries.slice(10).reduce((sum, a) => sum + a.weight, 0);
+  const totalSonstige = Math.round((sonstigePct + overflow) * 100) / 100;
   if (totalSonstige > 0) {
     top.push({ name: "Sonstige", weight: totalSonstige });
+  }
+
+  // Normalize to 100% (source data may not sum to 100)
+  const total = top.reduce((s, a) => s + a.weight, 0);
+  if (total > 0 && Math.abs(total - 100) > 0.5) {
+    const scale = 100 / total;
+    for (const item of top) {
+      item.weight = Math.round(item.weight * scale * 100) / 100;
+    }
   }
   return top;
 }

@@ -24,18 +24,17 @@ interface YearPoint {
 }
 
 function getWeightedReturn(positions: Position[], period: Period): number {
-  let totalWeight = 0;
   let weightedReturn = 0;
 
   for (const p of positions) {
     if (!p.etfData || p.weight <= 0) continue;
-    const w = p.weight / 100;
+    const w = p.weight / 100; // weight is 0-100, normalize to 0-1
 
     let annualized = 0;
     if (period === "1y") {
-      annualized = p.etfData.return_1y || 0;
+      annualized = p.etfData.return_1y || 0; // already % p.a.
     } else if (period === "3y") {
-      // return_3y is cumulative, annualize: (1 + r)^(1/3) - 1
+      // return_3y is cumulative %, annualize: (1 + r/100)^(1/3) - 1
       const cum = (p.etfData.return_3y || 0) / 100;
       annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 3) - 1) * 100 : 0;
     } else {
@@ -43,11 +42,10 @@ function getWeightedReturn(positions: Position[], period: Period): number {
       annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 5) - 1) * 100 : 0;
     }
 
-    weightedReturn += w * annualized;
-    totalWeight += w;
+    weightedReturn += w * annualized; // w is 0-1, annualized is %, result is %
   }
 
-  return totalWeight > 0 ? weightedReturn / totalWeight * 100 : 0;
+  return weightedReturn; // already weighted sum in %
 }
 
 function simulate(
