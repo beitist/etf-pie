@@ -57,7 +57,14 @@ async def _fetch(url: str) -> str:
 def _parse_percent(text: str) -> float:
     if not text:
         return 0.0
-    cleaned = text.strip().replace("%", "").replace(",", ".").replace(" ", "").strip()
+    cleaned = (
+        text.strip()
+        .replace("%", "")
+        .replace("p.a.", "")
+        .replace(",", ".")
+        .replace("+", "")
+        .strip()
+    )
     try:
         return float(cleaned)
     except ValueError:

@@ -64,7 +64,7 @@ async def load_xetra_instruments(progress: dict):
             source="xetra",
             wkn=wkn,
             name_xetra=name,
-            name_display=name,  # Will be overwritten by justETF later
+            # Don't set name_display - let justETF provide the proper name
             currency=row.get("Currency", "").strip() or "EUR",
         )
         count += 1
