@@ -118,12 +118,24 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
   const [years, setYears] = useState(10);
   const [scenario, setScenario] = useState<Scenario>("balanced");
 
-  const annualReturn = useMemo(
-    () => getWeightedReturn(positions, scenario),
-    [positions, scenario]
-  );
+  const DEFAULT_RETURN = 5; // conservative fallback for ETFs without data
 
-  const hasReturnData = positions.some((p) => p.etfData && (p.etfData.return_1y || p.etfData.return_3y || p.etfData.return_5y));
+  const withData = positions.filter((p) => p.etfData && p.weight > 0 && (p.etfData.return_1y || p.etfData.return_3y || p.etfData.return_5y));
+  const withoutData = positions.filter((p) => p.etfData && p.weight > 0 && !p.etfData.return_1y && !p.etfData.return_3y && !p.etfData.return_5y);
+  const missingPct = withoutData.reduce((s, p) => s + p.weight, 0);
+
+  const annualReturn = useMemo(() => {
+    const dataReturn = getWeightedReturn(positions, scenario);
+    if (missingPct <= 0) return dataReturn;
+
+    // Blend: real data for covered %, fallback for uncovered %
+    const coveredPct = 100 - missingPct;
+    return coveredPct > 0
+      ? (dataReturn * coveredPct + DEFAULT_RETURN * missingPct) / 100
+      : DEFAULT_RETURN;
+  }, [positions, scenario, missingPct]);
+
+  const hasReturnData = withData.length > 0;
 
   const data = useMemo(
     () => simulate(startAmount, monthlyTotal, years, annualReturn),
@@ -143,7 +155,13 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
 
       {!hasReturnData && (
         <p className="chart-subtitle" style={{ color: "#f59e0b" }}>
-          Rendite-Daten werden geladen...
+          Rendite-Daten werden geladen... Rechne mit {DEFAULT_RETURN}% p.a. als Schätzung.
+        </p>
+      )}
+      {hasReturnData && missingPct > 0 && (
+        <p className="chart-subtitle" style={{ color: "#f59e0b" }}>
+          Für {withoutData.length} ETF{withoutData.length > 1 ? "s" : ""} ({missingPct.toFixed(0)}% des Portfolios)
+          fehlen Performance-Daten. Dort wird mit {DEFAULT_RETURN}% p.a. gerechnet.
         </p>
       )}
 
