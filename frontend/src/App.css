@@ -384,6 +384,81 @@ body {
   font-size: 0.9rem;
 }
 
+/* Country section with regions sidebar */
+.country-section {
+  margin-bottom: 1.5rem;
+}
+
+.country-chart-with-regions {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .country-chart-with-regions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Region Table */
+.region-table {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.region-table h4 {
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 0.75rem;
+}
+
+.region-row {
+  margin-bottom: 0.6rem;
+}
+
+.region-bar-track {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.2rem;
+}
+
+.region-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.region-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.region-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.region-weight {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.region-countries {
+  display: block;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-top: 0.1rem;
+}
+
 /* Charts Grid */
 .charts-grid {
   display: flex;

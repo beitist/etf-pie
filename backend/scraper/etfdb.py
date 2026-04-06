@@ -65,7 +65,7 @@ async def load_etfdb(progress: dict):
             isin=isin,
             source="etfdb",
             wkn=row.get("wkn", "").strip(),
-            name_display=row.get("name", "").strip(),
+            # Don't set name_display - Xetra/justETF have better German names
             ter=safe_float(row.get("ter", "")),
             replication=row.get("replication", "").strip(),
             distribution=row.get("dividends", "").strip(),

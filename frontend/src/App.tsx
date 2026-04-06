@@ -12,6 +12,7 @@ import { ShareButton } from "./components/ShareButton";
 import { CountryMap } from "./components/CountryMap";
 import { SparplanSimulator } from "./components/SparplanSimulator";
 import { PreloadModal } from "./components/PreloadModal";
+import { RegionTable } from "./components/RegionTable";
 import "./App.css";
 
 function App() {
@@ -69,11 +70,17 @@ function App() {
               positions={positions}
             />
 
+            <section className="country-section">
+              <div className="country-chart-with-regions">
+                <AllocationChart
+                  title="Länder-Allokation"
+                  data={aggregated.countries}
+                />
+                <RegionTable countries={aggregated.countries} />
+              </div>
+            </section>
+
             <section className="charts-grid">
-              <AllocationChart
-                title="Länder-Allokation"
-                data={aggregated.countries}
-              />
               <AllocationChart
                 title="Sektoren"
                 data={aggregated.sectors}
