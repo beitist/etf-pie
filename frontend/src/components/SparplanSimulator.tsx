@@ -23,6 +23,30 @@ interface YearPoint {
   value: number;
 }
 
+function annualize(cumReturn: number, years: number): number {
+  if (!cumReturn) return 0;
+  return (Math.pow(1 + cumReturn / 100, 1 / years) - 1) * 100;
+}
+
+function getBestReturn(d: Position["etfData"], period: Period): number {
+  if (!d) return 0;
+  // Try preferred period first, then fall back to best available
+  if (period === "5y") {
+    if (d.return_5y) return annualize(d.return_5y, 5);
+    if (d.return_3y) return annualize(d.return_3y, 3);
+    if (d.return_1y) return d.return_1y;
+  } else if (period === "3y") {
+    if (d.return_3y) return annualize(d.return_3y, 3);
+    if (d.return_5y) return annualize(d.return_5y, 5);
+    if (d.return_1y) return d.return_1y;
+  } else {
+    if (d.return_1y) return d.return_1y;
+    if (d.return_3y) return annualize(d.return_3y, 3);
+    if (d.return_5y) return annualize(d.return_5y, 5);
+  }
+  return 0;
+}
+
 function getWeightedReturn(positions: Position[], period: Period): number {
   let weightedReturn = 0;
   let coveredWeight = 0;
@@ -30,29 +54,14 @@ function getWeightedReturn(positions: Position[], period: Period): number {
   for (const p of positions) {
     if (!p.etfData || p.weight <= 0) continue;
 
-    let raw = 0;
-    if (period === "1y") raw = p.etfData.return_1y;
-    else if (period === "3y") raw = p.etfData.return_3y;
-    else raw = p.etfData.return_5y;
-
-    if (!raw) continue; // skip ETFs without data for this period
+    const annualized = getBestReturn(p.etfData, period);
+    if (!annualized) continue;
 
     const w = p.weight / 100;
-
-    let annualized = 0;
-    if (period === "1y") {
-      annualized = raw; // already % p.a.
-    } else if (period === "3y") {
-      annualized = (Math.pow(1 + raw / 100, 1 / 3) - 1) * 100;
-    } else {
-      annualized = (Math.pow(1 + raw / 100, 1 / 5) - 1) * 100;
-    }
-
     weightedReturn += w * annualized;
     coveredWeight += w;
   }
 
-  // Normalize to covered positions only
   return coveredWeight > 0 ? weightedReturn / coveredWeight : 0;
 }
 
