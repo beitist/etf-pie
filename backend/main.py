@@ -16,8 +16,9 @@ from models.etf import (
 from scraper.db import (
     get_allocations,
     get_etf,
-    get_least_recently_scraped,
+    get_stale_requested,
     get_stats,
+    mark_requested,
     search_etfs,
 )
 from scraper.etfdb import load_etfdb
@@ -84,21 +85,21 @@ async def _startup_pipeline():
 
 
 async def _background_scraper():
-    """Slowly scrape justETF profiles in the background. ~1 ETF per 2-3 minutes."""
-    await asyncio.sleep(10)  # Wait for startup to finish
-    log.info("Background scraper started")
+    """Refresh justETF data for user-requested ETFs older than 24h."""
+    await asyncio.sleep(30)  # Wait for startup to finish
+    log.info("Background scraper started (only refreshes user-requested ETFs)")
 
     while True:
         try:
-            candidates = get_least_recently_scraped(limit=5)
+            candidates = get_stale_requested(max_age_hours=168, limit=5)  # 7 days
             if not candidates:
+                # Nothing to refresh, check again in 5 min
                 await asyncio.sleep(300)
                 continue
 
-            # Pick one (slight randomness to avoid patterns)
             target = random.choice(candidates)
             isin = target["isin"]
-            log.info(f"BG-SCRAPE: {isin} ({target.get('name_display', '?')})")
+            log.info(f"BG-REFRESH: {isin} ({target.get('name_display', '?')})")
 
             await scrape_etf_profile(isin)
 
@@ -107,7 +108,7 @@ async def _background_scraper():
             await asyncio.sleep(delay)
 
         except Exception as e:
-            log.error(f"BG-SCRAPE error: {e}")
+            log.error(f"BG-REFRESH error: {e}")
             await asyncio.sleep(300)
 
 
@@ -136,6 +137,9 @@ async def api_etf_profile(isin: str):
     etf = get_etf(isin)
     if not etf:
         raise HTTPException(status_code=404, detail="ETF not found")
+
+    # Mark as user-requested so background worker keeps it fresh
+    mark_requested(isin)
 
     countries = get_allocations("countries", isin)
     sectors = get_allocations("sectors", isin)

@@ -44,7 +44,8 @@ def _init_schema(conn: sqlite3.Connection):
             currency TEXT DEFAULT '',
             source TEXT DEFAULT '',
             last_updated REAL DEFAULT 0,
-            last_scraped REAL DEFAULT 0
+            last_scraped REAL DEFAULT 0,
+            requested INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS countries (
@@ -207,13 +208,23 @@ def search_etfs(query: str, limit: int = 20) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_least_recently_scraped(limit: int = 1) -> list[dict]:
+def mark_requested(isin: str):
+    """Mark an ETF as user-requested (eligible for background refresh)."""
     conn = get_conn()
+    conn.execute("UPDATE etfs SET requested = 1 WHERE isin = ?", (isin,))
+    conn.commit()
+
+
+def get_stale_requested(max_age_hours: float = 24, limit: int = 5) -> list[dict]:
+    """Get user-requested ETFs whose scrape is older than max_age_hours."""
+    conn = get_conn()
+    cutoff = time.time() - (max_age_hours * 3600)
     rows = conn.execute(
         """SELECT isin, name_display FROM etfs
+           WHERE requested = 1 AND last_scraped < ?
            ORDER BY last_scraped ASC
            LIMIT ?""",
-        (limit,),
+        (cutoff, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
