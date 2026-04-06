@@ -25,27 +25,35 @@ interface YearPoint {
 
 function getWeightedReturn(positions: Position[], period: Period): number {
   let weightedReturn = 0;
+  let coveredWeight = 0;
 
   for (const p of positions) {
     if (!p.etfData || p.weight <= 0) continue;
-    const w = p.weight / 100; // weight is 0-100, normalize to 0-1
+
+    let raw = 0;
+    if (period === "1y") raw = p.etfData.return_1y;
+    else if (period === "3y") raw = p.etfData.return_3y;
+    else raw = p.etfData.return_5y;
+
+    if (!raw) continue; // skip ETFs without data for this period
+
+    const w = p.weight / 100;
 
     let annualized = 0;
     if (period === "1y") {
-      annualized = p.etfData.return_1y || 0; // already % p.a.
+      annualized = raw; // already % p.a.
     } else if (period === "3y") {
-      // return_3y is cumulative %, annualize: (1 + r/100)^(1/3) - 1
-      const cum = (p.etfData.return_3y || 0) / 100;
-      annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 3) - 1) * 100 : 0;
+      annualized = (Math.pow(1 + raw / 100, 1 / 3) - 1) * 100;
     } else {
-      const cum = (p.etfData.return_5y || 0) / 100;
-      annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 5) - 1) * 100 : 0;
+      annualized = (Math.pow(1 + raw / 100, 1 / 5) - 1) * 100;
     }
 
-    weightedReturn += w * annualized; // w is 0-1, annualized is %, result is %
+    weightedReturn += w * annualized;
+    coveredWeight += w;
   }
 
-  return weightedReturn; // already weighted sum in %
+  // Normalize to covered positions only
+  return coveredWeight > 0 ? weightedReturn / coveredWeight : 0;
 }
 
 function simulate(

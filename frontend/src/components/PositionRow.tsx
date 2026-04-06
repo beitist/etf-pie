@@ -2,6 +2,15 @@ import { useState } from "react";
 import { usePortfolioStore } from "../stores/portfolio";
 import type { Position } from "../types";
 
+interface Alternative {
+  isin: string;
+  name: string;
+  ter: number;
+  replication: string;
+  distribution: string;
+  fund_size: string;
+}
+
 interface Props {
   position: Position;
 }
@@ -20,8 +29,24 @@ function returnClass(val: number): string {
 export function PositionRow({ position }: Props) {
   const { setEuroAmount, removePosition } = usePortfolioStore();
   const [expanded, setExpanded] = useState(false);
+  const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
+  const [loadingAlts, setLoadingAlts] = useState(false);
 
   const d = position.etfData;
+
+  const searchAlternatives = async () => {
+    setLoadingAlts(true);
+    try {
+      const res = await fetch(`/api/etf/${position.isin}/alternatives`);
+      if (res.ok) {
+        setAlternatives(await res.json());
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingAlts(false);
+    }
+  };
 
   return (
     <div className={`position-row ${expanded ? "position-row--expanded" : ""}`}>
@@ -106,11 +131,62 @@ export function PositionRow({ position }: Props) {
             </div>
           )}
 
-          {d.cheaper_isin && (
+          {d.cheaper_isin && !alternatives && (
             <div className="detail-hint detail-hint--warn">
               Günstigere Alternative auf den gleichen Index: {d.cheaper_name} (TER {d.cheaper_ter}% statt {d.ter}%)
             </div>
           )}
+
+          <div className="alternatives-section">
+            {!alternatives && (
+              <button
+                className="alt-search-btn"
+                onClick={searchAlternatives}
+                disabled={loadingAlts}
+              >
+                {loadingAlts ? "Suche..." : "Günstigere Alternative suchen"}
+              </button>
+            )}
+
+            {alternatives && alternatives.length > 0 && (
+              <div className="alternatives-list">
+                <h4>ETFs auf den gleichen Index ({d.benchmark})</h4>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>TER</th>
+                      <th>Replikation</th>
+                      <th>Größe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alternatives.map((alt) => (
+                      <tr
+                        key={alt.isin}
+                        className={alt.ter < d.ter ? "alt-cheaper" : ""}
+                      >
+                        <td>
+                          <span className="alt-name">{alt.name}</span>
+                          <span className="alt-isin">{alt.isin}</span>
+                        </td>
+                        <td className={alt.ter < d.ter ? "alt-ter-better" : ""}>
+                          {alt.ter}%
+                          {alt.ter < d.ter && " *"}
+                        </td>
+                        <td>{alt.replication}</td>
+                        <td>{alt.fund_size}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {alternatives && alternatives.length === 0 && (
+              <p className="alt-none">Keine Alternativen auf den gleichen Index gefunden.</p>
+            )}
+          </div>
         </div>
       )}
     </div>

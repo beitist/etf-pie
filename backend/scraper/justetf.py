@@ -217,6 +217,51 @@ async def scrape_etf_profile(isin: str) -> bool:
     return True
 
 
+async def scrape_alternatives(isin: str) -> list[dict]:
+    """Scrape the 'Weitere ETFs auf den gleichen Index' table from justETF."""
+    log.info(f"ALTERNATIVES {isin}")
+    url = f"{BASE_URL}/etf-profile.html?isin={isin}"
+    try:
+        html = await _fetch(url)
+    except Exception as e:
+        log.error(f"  -> fetch failed: {e}")
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    results = []
+
+    for h in soup.select("h3"):
+        if "Weitere ETFs" not in h.get_text():
+            continue
+        table = h.find_next("table")
+        if not table:
+            continue
+        for row in table.select("tr"):
+            tds = row.select("td")
+            if len(tds) < 5:
+                continue
+            link = tds[0].select_one("a[href*='isin=']")
+            alt_isin = ""
+            if link:
+                m = re.search(r"isin=([A-Z0-9]+)", link.get("href", ""))
+                if m:
+                    alt_isin = m.group(1)
+            if not alt_isin or alt_isin == isin:
+                continue
+            results.append({
+                "isin": alt_isin,
+                "name": tds[0].get_text(strip=True),
+                "fund_size": tds[1].get_text(strip=True),
+                "ter": _parse_percent(tds[2].get_text(strip=True)),
+                "distribution": tds[3].get_text(strip=True),
+                "replication": tds[4].get_text(strip=True),
+            })
+        break
+
+    log.info(f"  -> {len(results)} alternatives found")
+    return sorted(results, key=lambda x: x["ter"])
+
+
 def _parse_section_by_heading(
     soup: BeautifulSoup, headings: list[str]
 ) -> list[dict]:

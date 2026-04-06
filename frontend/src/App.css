@@ -302,6 +302,84 @@ body {
   color: #92400e;
 }
 
+/* Alternatives */
+.alternatives-section {
+  margin-top: 0.75rem;
+}
+
+.alt-search-btn {
+  padding: 0.4rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.alt-search-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.alt-search-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.alternatives-list h4 {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+}
+
+.alternatives-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.alternatives-list th {
+  text-align: left;
+  color: #94a3b8;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.alternatives-list td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.alt-cheaper {
+  background: #f0fdf4;
+}
+
+.alt-ter-better {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.alt-name {
+  display: block;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.alt-isin {
+  display: block;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+.alt-none {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
 @media (max-width: 640px) {
   .detail-grid {
     grid-template-columns: 1fr;

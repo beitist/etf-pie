@@ -23,7 +23,7 @@ from scraper.db import (
     mark_requested,
     search_etfs,
 )
-from scraper.justetf import scrape_etf_profile
+from scraper.justetf import scrape_alternatives, scrape_etf_profile
 from scraper.xetra import load_xetra_instruments
 
 logging.basicConfig(
@@ -194,6 +194,50 @@ async def api_etf_profile(isin: str):
         holdings=[Holding(name=h["name"], weight=h["weight"]) for h in holdings],
         market_cap=MarketCap(),
     )
+
+
+@app.get("/api/etf/{isin}/alternatives")
+async def api_alternatives(isin: str):
+    """Find cheaper ETFs on the same index. DB first, justETF scrape as fallback."""
+    etf = get_etf(isin)
+    if not etf:
+        raise HTTPException(status_code=404, detail="ETF not found")
+
+    benchmark = etf.get("benchmark", "")
+    if not benchmark:
+        # Need to scrape first to get the benchmark
+        await scrape_etf_profile(isin)
+        etf = get_etf(isin)
+        benchmark = etf.get("benchmark", "") if etf else ""
+
+    if not benchmark:
+        return []
+
+    # Try DB first: find all ETFs on the same index
+    conn = __import__("scraper.db", fromlist=["get_conn"]).get_conn()
+    rows = conn.execute(
+        """SELECT isin, name_display, name_xetra, ter, replication, distribution, fund_size
+           FROM etfs
+           WHERE benchmark = ? AND isin != ? AND ter > 0
+           ORDER BY ter ASC""",
+        (benchmark, isin),
+    ).fetchall()
+
+    if rows:
+        return [
+            {
+                "isin": r["isin"],
+                "name": r["name_display"] or r["name_xetra"] or r["isin"],
+                "ter": r["ter"],
+                "replication": r["replication"] or "",
+                "distribution": r["distribution"] or "",
+                "fund_size": r["fund_size"] or "",
+            }
+            for r in rows
+        ]
+
+    # Fallback: scrape justETF
+    return await scrape_alternatives(isin)
 
 
 @app.get("/api/preload-status")
