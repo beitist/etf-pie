@@ -42,6 +42,18 @@ def _init_schema(conn: sqlite3.Connection):
             distribution TEXT DEFAULT '',
             fund_size TEXT DEFAULT '',
             currency TEXT DEFAULT '',
+            domicile TEXT DEFAULT '',
+            issuer TEXT DEFAULT '',
+            asset_class TEXT DEFAULT '',
+            benchmark TEXT DEFAULT '',
+            return_1m REAL DEFAULT 0,
+            return_3m REAL DEFAULT 0,
+            return_6m REAL DEFAULT 0,
+            return_1y REAL DEFAULT 0,
+            return_3y REAL DEFAULT 0,
+            return_5y REAL DEFAULT 0,
+            return_ytd REAL DEFAULT 0,
+            volatility_1y REAL DEFAULT 0,
             source TEXT DEFAULT '',
             last_updated REAL DEFAULT 0,
             last_scraped REAL DEFAULT 0,
@@ -87,62 +99,50 @@ def _init_schema(conn: sqlite3.Connection):
 
 # ─── ETF CRUD ────────────────────────────────────────────────────────────
 
-def upsert_etf(
-    isin: str,
-    source: str,
-    wkn: str = "",
-    name_xetra: str = "",
-    name_display: str = "",
-    ter: float = 0.0,
-    replication: str = "",
-    distribution: str = "",
-    fund_size: str = "",
-    currency: str = "",
-    mark_scraped: bool = False,
-):
+
+# Fields that should only be set if non-empty (don't overwrite good data with blanks)
+_STR_FIELDS = [
+    "wkn", "name_xetra", "name_display", "replication", "distribution",
+    "fund_size", "currency", "domicile", "issuer", "asset_class", "benchmark",
+]
+_FLOAT_FIELDS = [
+    "ter", "return_1m", "return_3m", "return_6m", "return_1y",
+    "return_3y", "return_5y", "return_ytd", "volatility_1y",
+]
+
+
+def upsert_etf(isin: str, source: str, mark_scraped: bool = False, **kwargs):
     conn = get_conn()
     now = time.time()
 
-    # Check existing
     row = conn.execute("SELECT * FROM etfs WHERE isin = ?", (isin,)).fetchone()
 
     if row is None:
-        conn.execute(
-            """INSERT INTO etfs (isin, wkn, name_xetra, name_display, ter, replication,
-               distribution, fund_size, currency, source, last_updated, last_scraped)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (isin, wkn, name_xetra, name_display, ter, replication,
-             distribution, fund_size, currency, source, now,
-             now if mark_scraped else 0),
-        )
+        # Insert with all provided fields
+        fields = {"isin": isin, "source": source, "last_updated": now}
+        if mark_scraped:
+            fields["last_scraped"] = now
+        for k in _STR_FIELDS:
+            if k in kwargs and kwargs[k]:
+                fields[k] = kwargs[k]
+        for k in _FLOAT_FIELDS:
+            if k in kwargs and kwargs[k]:
+                fields[k] = kwargs[k]
+        cols = ", ".join(fields.keys())
+        placeholders = ", ".join("?" for _ in fields)
+        conn.execute(f"INSERT INTO etfs ({cols}) VALUES ({placeholders})", list(fields.values()))
     else:
-        # Only overwrite non-empty fields
+        # Update only non-empty fields
         updates = []
         params = []
-        if wkn and not row["wkn"]:
-            updates.append("wkn = ?")
-            params.append(wkn)
-        if name_xetra:
-            updates.append("name_xetra = ?")
-            params.append(name_xetra)
-        if name_display:
-            updates.append("name_display = ?")
-            params.append(name_display)
-        if ter > 0:
-            updates.append("ter = ?")
-            params.append(ter)
-        if replication:
-            updates.append("replication = ?")
-            params.append(replication)
-        if distribution:
-            updates.append("distribution = ?")
-            params.append(distribution)
-        if fund_size:
-            updates.append("fund_size = ?")
-            params.append(fund_size)
-        if currency:
-            updates.append("currency = ?")
-            params.append(currency)
+        for k in _STR_FIELDS:
+            if k in kwargs and kwargs[k]:
+                updates.append(f"{k} = ?")
+                params.append(kwargs[k])
+        for k in _FLOAT_FIELDS:
+            if k in kwargs and kwargs[k]:
+                updates.append(f"{k} = ?")
+                params.append(kwargs[k])
 
         updates.append("source = ?")
         params.append(source)

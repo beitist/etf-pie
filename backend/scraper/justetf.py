@@ -125,6 +125,56 @@ async def scrape_etf_profile(isin: str) -> bool:
     if wkn_match:
         wkn = wkn_match.group(1)
 
+    # Fund info from etf-data-table
+    domicile = ""
+    issuer = ""
+    asset_class = ""
+    benchmark = ""
+
+    for table in soup.select("table.etf-data-table"):
+        for row in table.select("tr"):
+            tds = row.select("td")
+            if len(tds) >= 2:
+                label = tds[0].get_text(strip=True)
+                val = tds[1].get_text(strip=True)
+                label_lower = label.lower()
+                if "fondsdomizil" in label_lower:
+                    domicile = val
+                elif label_lower == "anbieter":
+                    issuer = val
+                elif "anlageschwerpunkt" in label_lower:
+                    asset_class = val
+                elif label_lower == "index":
+                    benchmark = val
+
+    # Performance returns
+    returns = {}
+    return_map = {
+        "1 monat": "return_1m",
+        "3 monate": "return_3m",
+        "6 monate": "return_6m",
+        "1 jahr": "return_1y",
+        "3 jahre": "return_3y",
+        "5 jahre": "return_5y",
+        "lfd. jahr": "return_ytd",
+    }
+    volatility_1y = 0.0
+
+    for table in soup.select("table.etf-data-table"):
+        for row in table.select("tr"):
+            tds = row.select("td")
+            if len(tds) >= 2:
+                label = tds[0].get_text(strip=True).lower()
+                val_text = tds[1].get_text(strip=True)
+                for key, field in return_map.items():
+                    if label == key:
+                        returns[field] = _parse_percent(val_text)
+                if "volatilität 1 jahr" in label:
+                    volatility_1y = _parse_percent(val_text)
+
+    log.info(f"  -> returns: {returns}")
+    log.info(f"  -> issuer={issuer}, domicile={domicile}, benchmark={benchmark}")
+
     # Save ETF base data
     upsert_etf(
         isin=isin,
@@ -135,7 +185,13 @@ async def scrape_etf_profile(isin: str) -> bool:
         replication=replication,
         distribution=distribution,
         fund_size=fund_size,
+        domicile=domicile,
+        issuer=issuer,
+        asset_class=asset_class,
+        benchmark=benchmark,
+        volatility_1y=volatility_1y,
         mark_scraped=True,
+        **returns,
     )
 
     # Countries

@@ -26,6 +26,18 @@ export interface ETFProfile {
   distribution: string;
   fund_size: string;
   currency: string;
+  domicile: string;
+  issuer: string;
+  asset_class: string;
+  benchmark: string;
+  return_1m: number;
+  return_3m: number;
+  return_6m: number;
+  return_1y: number;
+  return_3y: number;
+  return_5y: number;
+  return_ytd: number;
+  volatility_1y: number;
   countries: Allocation[];
   sectors: Allocation[];
   holdings: Holding[];
