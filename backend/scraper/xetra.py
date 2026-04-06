@@ -54,13 +54,6 @@ async def load_xetra_instruments(progress: dict):
         if not isin or not name:
             continue
 
-        # Filter: only ETFs/ETPs (name contains ETF, ETP, UCITS, or similar patterns)
-        name_upper = name.upper()
-        is_etf = any(kw in name_upper for kw in ["ETF", "ETP", "UCITS", "ETC"])
-
-        if not is_etf:
-            continue
-
         # Clean WKN (Xetra pads with leading zeros)
         wkn = wkn.lstrip("0") if wkn else ""
         if len(wkn) < 6 and wkn:
