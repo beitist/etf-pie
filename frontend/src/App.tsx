@@ -5,7 +5,6 @@ import { PortfolioHeader } from "./components/PortfolioHeader";
 import { AddETFSearch } from "./components/AddETFSearch";
 import { PositionRow } from "./components/PositionRow";
 import { AllocationChart } from "./components/AllocationChart";
-import { MarketCapChart } from "./components/MarketCapChart";
 import { OverlapTable } from "./components/OverlapTable";
 import { WarningBanner } from "./components/WarningBanner";
 import { ShareButton } from "./components/ShareButton";
@@ -13,6 +12,7 @@ import { CountryMap } from "./components/CountryMap";
 import { SparplanSimulator } from "./components/SparplanSimulator";
 import { PreloadModal } from "./components/PreloadModal";
 import { RegionTable } from "./components/RegionTable";
+import { FundSizeChart } from "./components/FundSizeChart";
 import "./App.css";
 
 function App() {
@@ -70,17 +70,12 @@ function App() {
               positions={positions}
             />
 
-            <section className="country-section">
-              <div className="country-chart-with-regions">
-                <AllocationChart
-                  title="Länder-Allokation"
-                  data={aggregated.countries}
-                />
-                <RegionTable countries={aggregated.countries} />
-              </div>
-            </section>
-
             <section className="charts-grid">
+              <AllocationChart
+                title="Länder-Allokation"
+                data={aggregated.countries}
+              />
+              <RegionTable countries={aggregated.countries} />
               <AllocationChart
                 title="Sektoren"
                 data={aggregated.sectors}
@@ -89,7 +84,7 @@ function App() {
                 title="Top Holdings"
                 data={aggregated.holdings}
               />
-              <MarketCapChart marketCap={aggregated.marketCap} />
+              <FundSizeChart positions={positions} />
             </section>
 
             <section className="full-width-section">

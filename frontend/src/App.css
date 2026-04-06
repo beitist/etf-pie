@@ -384,40 +384,26 @@ body {
   font-size: 0.9rem;
 }
 
-/* Country section with regions sidebar */
-.country-section {
-  margin-bottom: 1.5rem;
-}
-
-.country-chart-with-regions {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .country-chart-with-regions {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* Region Table */
 .region-table {
   background: white;
   border-radius: 12px;
-  padding: 1.25rem;
+  padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem 2rem;
 }
 
 .region-table h4 {
-  font-size: 0.85rem;
+  font-size: 1rem;
   color: #334155;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
+  grid-column: 1 / -1;
 }
 
 .region-row {
-  margin-bottom: 0.6rem;
+  margin-bottom: 0;
 }
 
 .region-bar-track {
