@@ -117,7 +117,7 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
 
       {!hasReturnData && (
         <p className="chart-subtitle" style={{ color: "#f59e0b" }}>
-          Rendite-Daten werden geladen... Klapp die ETFs einmal auf um die Daten abzurufen.
+          Rendite-Daten werden geladen...
         </p>
       )}
 
