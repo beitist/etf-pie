@@ -41,6 +41,10 @@ class ETFProfile(BaseModel):
     return_5y: float = 0.0
     return_ytd: float = 0.0
     volatility_1y: float = 0.0
+    proxy_isin: str = ""
+    cheaper_isin: str = ""
+    cheaper_name: str = ""
+    cheaper_ter: float = 0.0
     countries: list[Allocation] = []
     sectors: list[Allocation] = []
     holdings: list[Holding] = []

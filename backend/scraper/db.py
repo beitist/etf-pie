@@ -229,6 +229,43 @@ def get_stale_requested(max_age_hours: float = 24, limit: int = 5) -> list[dict]
     return [dict(r) for r in rows]
 
 
+def find_proxy_for_index(benchmark: str, exclude_isin: str = "") -> str | None:
+    """Find a physical ETF on the same index that has country allocation data."""
+    if not benchmark:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT e.isin FROM etfs e
+           JOIN countries c ON e.isin = c.isin
+           WHERE e.benchmark = ? AND e.isin != ?
+           GROUP BY e.isin
+           HAVING COUNT(c.name) >= 3
+           ORDER BY e.fund_size DESC
+           LIMIT 1""",
+        (benchmark, exclude_isin),
+    ).fetchone()
+    return row["isin"] if row else None
+
+
+def find_cheaper_alternative(isin: str) -> dict | None:
+    """Find a cheaper ETF on the same index."""
+    conn = get_conn()
+    etf = conn.execute(
+        "SELECT benchmark, ter FROM etfs WHERE isin = ?", (isin,)
+    ).fetchone()
+    if not etf or not etf["benchmark"] or not etf["ter"]:
+        return None
+    row = conn.execute(
+        """SELECT isin, name_display, name_xetra, ter, replication
+           FROM etfs
+           WHERE benchmark = ? AND isin != ? AND ter > 0 AND ter < ?
+           ORDER BY ter ASC
+           LIMIT 1""",
+        (etf["benchmark"], isin, etf["ter"]),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def get_stats() -> dict:
     conn = get_conn()
     total = conn.execute("SELECT COUNT(*) FROM etfs").fetchone()[0]

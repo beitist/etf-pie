@@ -38,6 +38,10 @@ export interface ETFProfile {
   return_5y: number;
   return_ytd: number;
   volatility_1y: number;
+  proxy_isin: string;
+  cheaper_isin: string;
+  cheaper_name: string;
+  cheaper_ter: number;
   countries: Allocation[];
   sectors: Allocation[];
   holdings: Holding[];

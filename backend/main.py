@@ -14,6 +14,8 @@ from models.etf import (
     MarketCap,
 )
 from scraper.db import (
+    find_cheaper_alternative,
+    find_proxy_for_index,
     get_allocations,
     get_etf,
     get_stale_requested,
@@ -138,7 +140,7 @@ async def api_etf_profile(isin: str):
     sectors = get_allocations("sectors", isin)
     holdings = get_allocations("holdings", isin)
 
-    # Scrape on demand if never scraped (no allocations or no performance data)
+    # Scrape on demand if never scraped
     never_scraped = not etf.get("last_scraped")
     if never_scraped or (not countries and not sectors):
         log.info(f"Scraping {isin} on demand (never_scraped={never_scraped})...")
@@ -148,6 +150,19 @@ async def api_etf_profile(isin: str):
             countries = get_allocations("countries", isin)
             sectors = get_allocations("sectors", isin)
             holdings = get_allocations("holdings", isin)
+
+    # Swap-ETF proxy: if still no allocation data, use a physical ETF on the same index
+    proxy_isin = None
+    if not countries and etf.get("benchmark"):
+        proxy_isin = find_proxy_for_index(etf["benchmark"], exclude_isin=isin)
+        if proxy_isin:
+            log.info(f"  -> using proxy {proxy_isin} for index '{etf['benchmark']}'")
+            countries = get_allocations("countries", proxy_isin)
+            sectors = sectors or get_allocations("sectors", proxy_isin)
+            holdings = holdings or get_allocations("holdings", proxy_isin)
+
+    # Cheaper alternative on same index
+    cheaper = find_cheaper_alternative(isin)
 
     return ETFProfile(
         name=etf["name_display"] or etf["name_xetra"] or isin,
@@ -170,6 +185,10 @@ async def api_etf_profile(isin: str):
         return_5y=etf.get("return_5y", 0.0),
         return_ytd=etf.get("return_ytd", 0.0),
         volatility_1y=etf.get("volatility_1y", 0.0),
+        proxy_isin=proxy_isin or "",
+        cheaper_isin=cheaper["isin"] if cheaper else "",
+        cheaper_name=cheaper["name_display"] or cheaper.get("name_xetra", "") if cheaper else "",
+        cheaper_ter=cheaper["ter"] if cheaper else 0.0,
         countries=[Allocation(**c) for c in countries],
         sectors=[Allocation(**s) for s in sectors],
         holdings=[Holding(name=h["name"], weight=h["weight"]) for h in holdings],

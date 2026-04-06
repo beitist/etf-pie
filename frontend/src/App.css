@@ -285,6 +285,23 @@ body {
   margin-top: 0.5rem;
 }
 
+.detail-hint {
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-top: 0.75rem;
+}
+
+.detail-hint--info {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.detail-hint--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 @media (max-width: 640px) {
   .detail-grid {
     grid-template-columns: 1fr;

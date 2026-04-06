@@ -98,6 +98,19 @@ export function PositionRow({ position }: Props) {
               )}
             </div>
           </div>
+
+          {d.proxy_isin && (
+            <div className="detail-hint detail-hint--info">
+              Swap-ETF: Allokationsdaten stammen von einem physischen ETF
+              auf den gleichen Index ({d.benchmark}).
+            </div>
+          )}
+
+          {d.cheaper_isin && (
+            <div className="detail-hint detail-hint--warn">
+              Günstigere Alternative auf den gleichen Index: {d.cheaper_name} (TER {d.cheaper_ter}% statt {d.ter}%)
+            </div>
+          )}
         </div>
       )}
     </div>
