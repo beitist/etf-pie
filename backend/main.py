@@ -131,9 +131,15 @@ async def api_etf_profile(isin: str):
     """Get ETF profile from DB. If no allocation data, trigger justETF scrape."""
     etf = get_etf(isin)
     if not etf:
-        raise HTTPException(status_code=404, detail="ETF not found")
+        # ETF not in DB yet (e.g. shared link before Xetra loaded) - scrape directly
+        log.info(f"ETF {isin} not in DB, scraping on demand...")
+        success = await scrape_etf_profile(isin)
+        if not success:
+            raise HTTPException(status_code=404, detail="ETF not found")
+        etf = get_etf(isin)
+        if not etf:
+            raise HTTPException(status_code=404, detail="ETF not found")
 
-    # Mark as user-requested so background worker keeps it fresh
     mark_requested(isin)
 
     countries = get_allocations("countries", isin)
