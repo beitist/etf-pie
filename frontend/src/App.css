@@ -581,6 +581,44 @@ body {
   color: #2563eb;
 }
 
+.summary-value.negative {
+  color: #dc2626;
+}
+
+/* Period buttons */
+.period-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.period-btn {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #64748b;
+  transition: all 0.15s;
+}
+
+.period-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.period-btn--active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+.total-display-sm {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #334155;
+}
+
 /* Preload Modal */
 .preload-overlay {
   position: fixed;

@@ -8,16 +8,46 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { Position } from "../types";
+
+type Period = "1y" | "3y" | "5y";
 
 interface Props {
-  /** Weighted average annual return of the portfolio (e.g. 7 for 7%) */
-  avgReturn: number;
+  positions: Position[];
+  monthlyTotal: number;
 }
 
 interface YearPoint {
   year: number;
   deposits: number;
   value: number;
+}
+
+function getWeightedReturn(positions: Position[], period: Period): number {
+  let totalWeight = 0;
+  let weightedReturn = 0;
+
+  for (const p of positions) {
+    if (!p.etfData || p.weight <= 0) continue;
+    const w = p.weight / 100;
+
+    let annualized = 0;
+    if (period === "1y") {
+      annualized = p.etfData.return_1y || 0;
+    } else if (period === "3y") {
+      // return_3y is cumulative, annualize: (1 + r)^(1/3) - 1
+      const cum = (p.etfData.return_3y || 0) / 100;
+      annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 3) - 1) * 100 : 0;
+    } else {
+      const cum = (p.etfData.return_5y || 0) / 100;
+      annualized = cum !== 0 ? (Math.pow(1 + cum, 1 / 5) - 1) * 100 : 0;
+    }
+
+    weightedReturn += w * annualized;
+    totalWeight += w;
+  }
+
+  return totalWeight > 0 ? weightedReturn / totalWeight * 100 : 0;
 }
 
 function simulate(
@@ -49,15 +79,29 @@ function formatEuro(value: number): string {
   return value.toLocaleString("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 }
 
-export function SparplanSimulator({ avgReturn }: Props) {
-  const [startAmount, setStartAmount] = useState(10000);
-  const [monthly, setMonthly] = useState(500);
-  const [years, setYears] = useState(20);
-  const [annualReturn, setAnnualReturn] = useState(avgReturn || 7);
+const PERIOD_LABELS: Record<Period, string> = {
+  "1y": "Letzte 12 Monate",
+  "3y": "Letzte 3 Jahre",
+  "5y": "Letzte 5 Jahre",
+};
+
+export function SparplanSimulator({ positions, monthlyTotal }: Props) {
+  const [startAmount, setStartAmount] = useState(0);
+  const [years, setYears] = useState(10);
+  const [period, setPeriod] = useState<Period>("3y");
+
+  const returns = useMemo(() => ({
+    "1y": getWeightedReturn(positions, "1y"),
+    "3y": getWeightedReturn(positions, "3y"),
+    "5y": getWeightedReturn(positions, "5y"),
+  }), [positions]);
+
+  const annualReturn = returns[period];
+  const hasReturnData = positions.some((p) => p.etfData && (p.etfData.return_1y || p.etfData.return_3y || p.etfData.return_5y));
 
   const data = useMemo(
-    () => simulate(startAmount, monthly, years, annualReturn),
-    [startAmount, monthly, years, annualReturn]
+    () => simulate(startAmount, monthlyTotal, years, annualReturn),
+    [startAmount, monthlyTotal, years, annualReturn]
   );
 
   const endValue = data[data.length - 1]?.value ?? 0;
@@ -66,11 +110,20 @@ export function SparplanSimulator({ avgReturn }: Props) {
 
   return (
     <div className="chart-card sparplan-card">
-      <h3>Sparplan-Simulator</h3>
+      <h3>Portfolio-Projektion</h3>
+      <p className="chart-subtitle">
+        Hochrechnung basierend auf der tatsächlichen Performance deines Portfolios
+      </p>
+
+      {!hasReturnData && (
+        <p className="chart-subtitle" style={{ color: "#f59e0b" }}>
+          Rendite-Daten werden geladen... Klapp die ETFs einmal auf um die Daten abzurufen.
+        </p>
+      )}
 
       <div className="sparplan-inputs">
         <div className="sparplan-field">
-          <label>Startbetrag</label>
+          <label>Bestehendes Portfolio</label>
           <div className="input-group">
             <input
               type="number"
@@ -83,16 +136,9 @@ export function SparplanSimulator({ avgReturn }: Props) {
           </div>
         </div>
         <div className="sparplan-field">
-          <label>Monatlich</label>
+          <label>Monatliche Sparrate</label>
           <div className="input-group">
-            <input
-              type="number"
-              value={monthly}
-              onChange={(e) => setMonthly(Number(e.target.value) || 0)}
-              min={0}
-              step={50}
-            />
-            <span className="unit">€</span>
+            <span className="total-display-sm">{monthlyTotal} €</span>
           </div>
         </div>
         <div className="sparplan-field">
@@ -109,29 +155,37 @@ export function SparplanSimulator({ avgReturn }: Props) {
           </div>
         </div>
         <div className="sparplan-field">
-          <label>Rendite p.a.</label>
-          <div className="input-group">
-            <input
-              type="number"
-              value={annualReturn}
-              onChange={(e) => setAnnualReturn(Number(e.target.value) || 0)}
-              min={0}
-              max={30}
-              step={0.5}
-            />
-            <span className="unit">%</span>
+          <label>Basis</label>
+          <div className="period-buttons">
+            {(["1y", "3y", "5y"] as Period[]).map((p) => (
+              <button
+                key={p}
+                className={`period-btn ${period === p ? "period-btn--active" : ""}`}
+                onClick={() => setPeriod(p)}
+              >
+                {PERIOD_LABELS[p]}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       <div className="sparplan-summary">
         <div className="summary-item">
+          <span className="summary-label">Gew. Rendite p.a.</span>
+          <span className={`summary-value ${annualReturn >= 0 ? "gains" : "negative"}`}>
+            {annualReturn >= 0 ? "+" : ""}{annualReturn.toFixed(2)}%
+          </span>
+        </div>
+        <div className="summary-item">
           <span className="summary-label">Eingezahlt</span>
           <span className="summary-value">{formatEuro(totalDeposits)}</span>
         </div>
         <div className="summary-item">
           <span className="summary-label">Rendite</span>
-          <span className="summary-value gains">{formatEuro(gains)}</span>
+          <span className={`summary-value ${gains >= 0 ? "gains" : "negative"}`}>
+            {formatEuro(gains)}
+          </span>
         </div>
         <div className="summary-item">
           <span className="summary-label">Endsumme</span>
@@ -142,13 +196,8 @@ export function SparplanSimulator({ avgReturn }: Props) {
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis
-            dataKey="year"
-            tickFormatter={(v) => `${v}J`}
-          />
-          <YAxis
-            tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-          />
+          <XAxis dataKey="year" tickFormatter={(v) => `${v}J`} />
+          <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
           <Tooltip
             formatter={(value, name) => [
               formatEuro(Number(value)),
@@ -159,7 +208,6 @@ export function SparplanSimulator({ avgReturn }: Props) {
           <Area
             type="monotone"
             dataKey="deposits"
-            stackId="1"
             stroke="#94a3b8"
             fill="#e2e8f0"
             name="deposits"

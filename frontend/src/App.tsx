@@ -96,7 +96,7 @@ function App() {
             </section>
 
             <section className="full-width-section">
-              <SparplanSimulator avgReturn={7} />
+              <SparplanSimulator positions={positions} monthlyTotal={totalAmount} />
             </section>
           </>
         )}
