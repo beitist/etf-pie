@@ -53,20 +53,28 @@ function aggregateAllocations(
     }
   }
 
-  const result = Array.from(map.entries())
+  // Pull out any existing "Sonstige"/"Other" entries and merge them
+  let sonstigeWeight = 0;
+  const entries = Array.from(map.entries()).filter(([name, weight]) => {
+    if (name.toLowerCase() === "sonstige" || name.toLowerCase() === "other") {
+      sonstigeWeight += weight;
+      return false;
+    }
+    return true;
+  });
+
+  const result = entries
     .map(([name, weight]) => ({ name, weight: Math.round(weight * 10000) / 100 }))
     .sort((a, b) => b.weight - a.weight);
 
-  // Top 10 + "Sonstige"
-  if (result.length > 10) {
-    const top = result.slice(0, 10);
-    const rest = result.slice(10).reduce((sum, a) => sum + a.weight, 0);
-    if (rest > 0) {
-      top.push({ name: "Sonstige", weight: Math.round(rest * 100) / 100 });
-    }
-    return top;
+  // Top 10 + "Sonstige" (including source "Sonstige" entries + overflow)
+  const top = result.slice(0, 10);
+  const rest = result.slice(10).reduce((sum, a) => sum + a.weight, 0);
+  const totalSonstige = Math.round((rest + sonstigeWeight * 100) * 100) / 100;
+  if (totalSonstige > 0) {
+    top.push({ name: "Sonstige", weight: totalSonstige });
   }
-  return result;
+  return top;
 }
 
 function aggregateMarketCap(positions: Position[]): MarketCap {

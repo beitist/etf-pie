@@ -73,9 +73,11 @@ async def load_etfdb(progress: dict):
             currency=row.get("currency", "").strip(),
         )
 
-        # Allocations
-        if isin in country_data:
-            upsert_allocations("countries", isin, country_data[isin], "etfdb")
+        # Allocations - skip country data if it looks like domicile instead of real allocation
+        # (Swap-based ETFs in etfdb often show 90% USA/France = counterparty, not holdings)
+        countries = country_data.get(isin, [])
+        if countries and not _looks_like_domicile(countries):
+            upsert_allocations("countries", isin, countries, "etfdb")
         if isin in sector_data:
             upsert_allocations("sectors", isin, sector_data[isin], "etfdb")
         if isin in holding_data:
@@ -88,6 +90,17 @@ async def load_etfdb(progress: dict):
     log.info(f"etfdb: {count} ETFs merged")
     progress["phase"] = f"{count} ETFs aus etfdb gemergt"
     return count
+
+
+def _looks_like_domicile(countries: list[dict]) -> bool:
+    """Detect if country data is actually fund domicile/swap counterparty.
+    Swap-based ETFs in etfdb often show 1-2 countries at ~90%+10% which is
+    the swap counterparty location, not the actual geographic allocation."""
+    if len(countries) <= 2:
+        top = countries[0]["weight"] if countries else 0
+        if top > 85:
+            return True
+    return False
 
 
 def _build_allocation_lookup(
