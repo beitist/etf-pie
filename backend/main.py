@@ -145,9 +145,10 @@ async def api_etf_profile(isin: str):
     sectors = get_allocations("sectors", isin)
     holdings = get_allocations("holdings", isin)
 
-    # If no allocation data yet, scrape on demand
-    if not countries and not sectors:
-        log.info(f"No allocation data for {isin}, scraping on demand...")
+    # Scrape on demand if never scraped (no allocations or no performance data)
+    never_scraped = not etf.get("last_scraped")
+    if never_scraped or (not countries and not sectors):
+        log.info(f"Scraping {isin} on demand (never_scraped={never_scraped})...")
         success = await scrape_etf_profile(isin)
         if success:
             etf = get_etf(isin)
