@@ -1,64 +1,33 @@
 """
 ETF database loader from github.com/albertored/etfdb.
 
-Provides 4000+ ETFs with full data: name, ISIN, WKN, TER,
-country allocation, sector allocation, top holdings.
-
-Falls back to justETF scraping for ETFs not in the database.
+Merges 4000+ ETFs with country/sector/holdings data into SQLite.
+Used as secondary source after Xetra (fills in allocation data).
 """
 
 import csv
 import io
-import json
 import logging
-import time
-from pathlib import Path
 
 import httpx
 
-log = logging.getLogger("etfdb")
+from scraper.db import upsert_allocations, upsert_etf
 
-DATA_DIR = Path("/app/data")
-DB_FILE = DATA_DIR / "etfdb.json"
+log = logging.getLogger("etfdb")
 
 BASE_URL = "https://raw.githubusercontent.com/albertored/etfdb/main/csv"
 
 
 def _parse_csv(text: str) -> list[dict]:
-    reader = csv.DictReader(io.StringIO(text))
-    return list(reader)
+    return list(csv.DictReader(io.StringIO(text)))
 
 
-async def load_etfdb(progress: dict) -> dict:
-    """
-    Download and parse etfdb CSV files.
-    Returns {isin: {name, wkn, ter, countries, sectors, holdings, ...}}
-    Cached to disk with 24h TTL.
-    """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Check disk cache
-    if DB_FILE.exists():
-        try:
-            data = json.loads(DB_FILE.read_text())
-            age_hours = (time.time() - data.get("timestamp", 0)) / 3600
-            if age_hours < 24:
-                etfs = data.get("etfs", {})
-                log.info(f"ETFDB loaded from disk: {len(etfs)} ETFs ({age_hours:.1f}h old)")
-                progress["phase"] = f"{len(etfs)} ETFs geladen (aus Cache)"
-                progress["total"] = len(etfs)
-                progress["done"] = len(etfs)
-                progress["status"] = "done"
-                return etfs
-            log.info(f"ETFDB on disk too old ({age_hours:.1f}h), refreshing")
-        except Exception as e:
-            log.error(f"ETFDB load error: {e}")
+async def load_etfdb(progress: dict):
+    """Download etfdb CSVs and merge into SQLite."""
+    progress["phase"] = "etfdb-Daten herunterladen..."
+    log.info("Downloading etfdb CSVs...")
 
     async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-        # Download all CSVs in parallel
-        progress["phase"] = "ETF-Datenbank herunterladen..."
-        log.info("Downloading etfdb CSVs...")
-
         files = {}
         for name in ["basic_info.csv", "countries.csv", "sectors.csv", "holdings.csv"]:
             progress["phase"] = f"Lade {name}..."
@@ -67,80 +36,20 @@ async def load_etfdb(progress: dict) -> dict:
             files[name] = resp.text
             log.info(f"  Downloaded {name}: {len(resp.text)} bytes")
 
-    # Parse basic info
-    progress["phase"] = "Daten verarbeiten..."
+    # Parse
+    progress["phase"] = "etfdb-Daten verarbeiten..."
     basic_rows = _parse_csv(files["basic_info.csv"])
     country_rows = _parse_csv(files["countries.csv"])
     sector_rows = _parse_csv(files["sectors.csv"])
     holding_rows = _parse_csv(files["holdings.csv"])
 
-    log.info(f"Parsed: {len(basic_rows)} basic, {len(country_rows)} countries, {len(sector_rows)} sectors, {len(holding_rows)} holdings")
+    # Build allocation lookups
+    country_data = _build_allocation_lookup(country_rows)
+    sector_data = _build_allocation_lookup(sector_rows)
+    holding_data = _build_allocation_lookup(holding_rows, limit=20)
 
-    # Build country lookup
-    country_data: dict[str, list[dict]] = {}
-    if country_rows:
-        country_names = [k for k in country_rows[0].keys() if k != "isin"]
-        for row in country_rows:
-            isin = row.get("isin", "")
-            if not isin:
-                continue
-            countries = []
-            for name in country_names:
-                val = row.get(name, "").strip()
-                if val and val != "0.0":
-                    try:
-                        weight = float(val)
-                        if weight > 0:
-                            countries.append({"name": name, "weight": weight})
-                    except ValueError:
-                        pass
-            if countries:
-                country_data[isin] = sorted(countries, key=lambda x: x["weight"], reverse=True)
-
-    # Build sector lookup
-    sector_data: dict[str, list[dict]] = {}
-    if sector_rows:
-        sector_names = [k for k in sector_rows[0].keys() if k != "isin"]
-        for row in sector_rows:
-            isin = row.get("isin", "")
-            if not isin:
-                continue
-            sectors = []
-            for name in sector_names:
-                val = row.get(name, "").strip()
-                if val and val != "0.0":
-                    try:
-                        weight = float(val)
-                        if weight > 0:
-                            sectors.append({"name": name, "weight": weight})
-                    except ValueError:
-                        pass
-            if sectors:
-                sector_data[isin] = sorted(sectors, key=lambda x: x["weight"], reverse=True)
-
-    # Build holdings lookup
-    holding_data: dict[str, list[dict]] = {}
-    if holding_rows:
-        holding_names = [k for k in holding_rows[0].keys() if k != "isin"]
-        for row in holding_rows:
-            isin = row.get("isin", "")
-            if not isin:
-                continue
-            holdings = []
-            for name in holding_names:
-                val = row.get(name, "").strip()
-                if val and val != "0.0":
-                    try:
-                        weight = float(val)
-                        if weight > 0:
-                            holdings.append({"name": name, "weight": weight})
-                    except ValueError:
-                        pass
-            if holdings:
-                holding_data[isin] = sorted(holdings, key=lambda x: x["weight"], reverse=True)[:20]
-
-    # Combine into main dict
-    etfs: dict[str, dict] = {}
+    # Merge basic info
+    count = 0
     for row in basic_rows:
         isin = row.get("isin", "").strip()
         if not isin:
@@ -152,31 +61,62 @@ async def load_etfdb(progress: dict) -> dict:
             except ValueError:
                 return 0.0
 
-        etfs[isin] = {
-            "name": row.get("name", "").strip(),
-            "wkn": row.get("wkn", "").strip(),
-            "ter": safe_float(row.get("ter", "")),
-            "replication": row.get("replication", "").strip(),
-            "distribution": row.get("dividends", "").strip(),
-            "fund_size": row.get("size", "").strip(),
-            "currency": row.get("currency", "").strip(),
-            "countries": country_data.get(isin, []),
-            "sectors": sector_data.get(isin, []),
-            "holdings": holding_data.get(isin, []),
-        }
+        upsert_etf(
+            isin=isin,
+            source="etfdb",
+            wkn=row.get("wkn", "").strip(),
+            name_display=row.get("name", "").strip(),
+            ter=safe_float(row.get("ter", "")),
+            replication=row.get("replication", "").strip(),
+            distribution=row.get("dividends", "").strip(),
+            fund_size=row.get("size", "").strip(),
+            currency=row.get("currency", "").strip(),
+        )
 
-        if len(etfs) % 1000 == 0:
-            progress["phase"] = f"{len(etfs)} ETFs verarbeitet..."
+        # Allocations
+        if isin in country_data:
+            upsert_allocations("countries", isin, country_data[isin], "etfdb")
+        if isin in sector_data:
+            upsert_allocations("sectors", isin, sector_data[isin], "etfdb")
+        if isin in holding_data:
+            upsert_allocations("holdings", isin, holding_data[isin], "etfdb")
 
-    # Save to disk
-    progress["phase"] = "Datenbank speichern..."
-    cache = {"timestamp": time.time(), "etfs": etfs}
-    DB_FILE.write_text(json.dumps(cache, ensure_ascii=False))
-    log.info(f"ETFDB saved: {len(etfs)} ETFs")
+        count += 1
+        if count % 500 == 0:
+            progress["phase"] = f"{count} ETFs aus etfdb verarbeitet..."
 
-    progress["phase"] = f"{len(etfs)} ETFs geladen"
-    progress["total"] = len(etfs)
-    progress["done"] = len(etfs)
-    progress["status"] = "done"
+    log.info(f"etfdb: {count} ETFs merged")
+    progress["phase"] = f"{count} ETFs aus etfdb gemergt"
+    return count
 
-    return etfs
+
+def _build_allocation_lookup(
+    rows: list[dict], limit: int = 0
+) -> dict[str, list[dict]]:
+    if not rows:
+        return {}
+
+    field_names = [k for k in rows[0].keys() if k != "isin"]
+    result: dict[str, list[dict]] = {}
+
+    for row in rows:
+        isin = row.get("isin", "").strip()
+        if not isin:
+            continue
+        items = []
+        for name in field_names:
+            val = row.get(name, "").strip()
+            if val and val != "0.0":
+                try:
+                    weight = float(val)
+                    if weight > 0:
+                        items.append({"name": name, "weight": weight})
+                except ValueError:
+                    pass
+        if items:
+            items.sort(key=lambda x: x["weight"], reverse=True)
+            if limit:
+                items = items[:limit]
+            result[isin] = items
+
+    return result

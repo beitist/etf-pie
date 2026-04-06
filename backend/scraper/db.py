@@ -1,0 +1,228 @@
+"""
+SQLite ETF database.
+
+Stores all ETF data with source tracking and timestamps.
+Data flows: Xetra (names) → etfdb (allocations) → justETF (full scrape, overwrites).
+"""
+
+import logging
+import sqlite3
+import time
+from pathlib import Path
+
+log = logging.getLogger("db")
+
+DATA_DIR = Path("/app/data")
+DB_PATH = DATA_DIR / "etf.db"
+
+_conn: sqlite3.Connection | None = None
+
+
+def get_conn() -> sqlite3.Connection:
+    global _conn
+    if _conn is None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        _conn.row_factory = sqlite3.Row
+        _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA foreign_keys=ON")
+        _init_schema(_conn)
+    return _conn
+
+
+def _init_schema(conn: sqlite3.Connection):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS etfs (
+            isin TEXT PRIMARY KEY,
+            wkn TEXT DEFAULT '',
+            name_xetra TEXT DEFAULT '',
+            name_display TEXT DEFAULT '',
+            ter REAL DEFAULT 0.0,
+            replication TEXT DEFAULT '',
+            distribution TEXT DEFAULT '',
+            fund_size TEXT DEFAULT '',
+            currency TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            last_updated REAL DEFAULT 0,
+            last_scraped REAL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS countries (
+            isin TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight REAL NOT NULL,
+            source TEXT DEFAULT '',
+            last_updated REAL DEFAULT 0,
+            PRIMARY KEY (isin, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS sectors (
+            isin TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight REAL NOT NULL,
+            source TEXT DEFAULT '',
+            last_updated REAL DEFAULT 0,
+            PRIMARY KEY (isin, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS holdings (
+            isin TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight REAL NOT NULL,
+            source TEXT DEFAULT '',
+            last_updated REAL DEFAULT 0,
+            PRIMARY KEY (isin, name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_etfs_last_scraped ON etfs(last_scraped);
+        CREATE INDEX IF NOT EXISTS idx_etfs_name ON etfs(name_display);
+        CREATE INDEX IF NOT EXISTS idx_countries_isin ON countries(isin);
+        CREATE INDEX IF NOT EXISTS idx_sectors_isin ON sectors(isin);
+        CREATE INDEX IF NOT EXISTS idx_holdings_isin ON holdings(isin);
+    """)
+    conn.commit()
+    log.info(f"DB initialized at {DB_PATH}")
+
+
+# ─── ETF CRUD ────────────────────────────────────────────────────────────
+
+def upsert_etf(
+    isin: str,
+    source: str,
+    wkn: str = "",
+    name_xetra: str = "",
+    name_display: str = "",
+    ter: float = 0.0,
+    replication: str = "",
+    distribution: str = "",
+    fund_size: str = "",
+    currency: str = "",
+    mark_scraped: bool = False,
+):
+    conn = get_conn()
+    now = time.time()
+
+    # Check existing
+    row = conn.execute("SELECT * FROM etfs WHERE isin = ?", (isin,)).fetchone()
+
+    if row is None:
+        conn.execute(
+            """INSERT INTO etfs (isin, wkn, name_xetra, name_display, ter, replication,
+               distribution, fund_size, currency, source, last_updated, last_scraped)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (isin, wkn, name_xetra, name_display, ter, replication,
+             distribution, fund_size, currency, source, now,
+             now if mark_scraped else 0),
+        )
+    else:
+        # Only overwrite non-empty fields
+        updates = []
+        params = []
+        if wkn and not row["wkn"]:
+            updates.append("wkn = ?")
+            params.append(wkn)
+        if name_xetra:
+            updates.append("name_xetra = ?")
+            params.append(name_xetra)
+        if name_display:
+            updates.append("name_display = ?")
+            params.append(name_display)
+        if ter > 0:
+            updates.append("ter = ?")
+            params.append(ter)
+        if replication:
+            updates.append("replication = ?")
+            params.append(replication)
+        if distribution:
+            updates.append("distribution = ?")
+            params.append(distribution)
+        if fund_size:
+            updates.append("fund_size = ?")
+            params.append(fund_size)
+        if currency:
+            updates.append("currency = ?")
+            params.append(currency)
+
+        updates.append("source = ?")
+        params.append(source)
+        updates.append("last_updated = ?")
+        params.append(now)
+        if mark_scraped:
+            updates.append("last_scraped = ?")
+            params.append(now)
+
+        params.append(isin)
+        conn.execute(f"UPDATE etfs SET {', '.join(updates)} WHERE isin = ?", params)
+
+    conn.commit()
+
+
+def upsert_allocations(
+    table: str,
+    isin: str,
+    items: list[dict],
+    source: str,
+):
+    """Replace all allocations for an ISIN in the given table."""
+    assert table in ("countries", "sectors", "holdings")
+    conn = get_conn()
+    now = time.time()
+    conn.execute(f"DELETE FROM {table} WHERE isin = ?", (isin,))
+    for item in items:
+        conn.execute(
+            f"INSERT INTO {table} (isin, name, weight, source, last_updated) VALUES (?, ?, ?, ?, ?)",
+            (isin, item["name"], item["weight"], source, now),
+        )
+    conn.commit()
+
+
+def get_etf(isin: str) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM etfs WHERE isin = ?", (isin,)).fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
+def get_allocations(table: str, isin: str) -> list[dict]:
+    assert table in ("countries", "sectors", "holdings")
+    conn = get_conn()
+    rows = conn.execute(
+        f"SELECT name, weight FROM {table} WHERE isin = ? ORDER BY weight DESC",
+        (isin,),
+    ).fetchall()
+    return [{"name": r["name"], "weight": r["weight"]} for r in rows]
+
+
+def search_etfs(query: str, limit: int = 20) -> list[dict]:
+    conn = get_conn()
+    q = f"%{query}%"
+    rows = conn.execute(
+        """SELECT isin, wkn, name_xetra, name_display, ter, replication, distribution
+           FROM etfs
+           WHERE isin LIKE ? OR wkn LIKE ? OR name_display LIKE ? OR name_xetra LIKE ?
+           LIMIT ?""",
+        (q, q, q, q, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_least_recently_scraped(limit: int = 1) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT isin, name_display FROM etfs
+           ORDER BY last_scraped ASC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_stats() -> dict:
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) FROM etfs").fetchone()[0]
+    scraped = conn.execute("SELECT COUNT(*) FROM etfs WHERE last_scraped > 0").fetchone()[0]
+    with_countries = conn.execute(
+        "SELECT COUNT(DISTINCT isin) FROM countries"
+    ).fetchone()[0]
+    return {"total": total, "scraped": scraped, "with_countries": with_countries}
