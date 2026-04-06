@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import type { Position } from "../types";
 
-type Period = "1y" | "3y" | "5y";
+type Scenario = "conservative" | "balanced" | "optimistic";
 
 interface Props {
   positions: Position[];
@@ -23,42 +23,49 @@ interface YearPoint {
   value: number;
 }
 
+// Weights for blending return periods per scenario
+const SCENARIO_WEIGHTS: Record<Scenario, { w1y: number; w3y: number; w5y: number }> = {
+  conservative: { w1y: 0.1, w3y: 0.2, w5y: 0.7 },
+  balanced:     { w1y: 0.2, w3y: 0.4, w5y: 0.4 },
+  optimistic:   { w1y: 0.5, w3y: 0.3, w5y: 0.2 },
+};
+
 function annualize(cumReturn: number, years: number): number {
   if (!cumReturn) return 0;
   return (Math.pow(1 + cumReturn / 100, 1 / years) - 1) * 100;
 }
 
-function getBestReturn(d: Position["etfData"], period: Period): number {
+function getBlendedReturn(d: Position["etfData"], scenario: Scenario): number {
   if (!d) return 0;
-  // Try preferred period first, then fall back to best available
-  if (period === "5y") {
-    if (d.return_5y) return annualize(d.return_5y, 5);
-    if (d.return_3y) return annualize(d.return_3y, 3);
-    if (d.return_1y) return d.return_1y;
-  } else if (period === "3y") {
-    if (d.return_3y) return annualize(d.return_3y, 3);
-    if (d.return_5y) return annualize(d.return_5y, 5);
-    if (d.return_1y) return d.return_1y;
-  } else {
-    if (d.return_1y) return d.return_1y;
-    if (d.return_3y) return annualize(d.return_3y, 3);
-    if (d.return_5y) return annualize(d.return_5y, 5);
-  }
-  return 0;
+
+  const r1y = d.return_1y || 0;
+  const r3y = d.return_3y ? annualize(d.return_3y, 3) : 0;
+  const r5y = d.return_5y ? annualize(d.return_5y, 5) : 0;
+
+  // Use available data, redistribute weights if some periods missing
+  const sw = SCENARIO_WEIGHTS[scenario];
+  let totalW = 0;
+  let blended = 0;
+
+  if (r1y) { blended += sw.w1y * r1y; totalW += sw.w1y; }
+  if (r3y) { blended += sw.w3y * r3y; totalW += sw.w3y; }
+  if (r5y) { blended += sw.w5y * r5y; totalW += sw.w5y; }
+
+  return totalW > 0 ? blended / totalW : 0;
 }
 
-function getWeightedReturn(positions: Position[], period: Period): number {
+function getWeightedReturn(positions: Position[], scenario: Scenario): number {
   let weightedReturn = 0;
   let coveredWeight = 0;
 
   for (const p of positions) {
     if (!p.etfData || p.weight <= 0) continue;
 
-    const annualized = getBestReturn(p.etfData, period);
-    if (!annualized) continue;
+    const blended = getBlendedReturn(p.etfData, scenario);
+    if (!blended) continue;
 
     const w = p.weight / 100;
-    weightedReturn += w * annualized;
+    weightedReturn += w * blended;
     coveredWeight += w;
   }
 
@@ -94,24 +101,28 @@ function formatEuro(value: number): string {
   return value.toLocaleString("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 }
 
-const PERIOD_LABELS: Record<Period, string> = {
-  "1y": "Letzte 12 Monate",
-  "3y": "Letzte 3 Jahre",
-  "5y": "Letzte 5 Jahre",
+const SCENARIO_LABELS: Record<Scenario, string> = {
+  conservative: "Konservativ",
+  balanced: "Ausgewogen",
+  optimistic: "Optimistisch",
+};
+
+const SCENARIO_DESC: Record<Scenario, string> = {
+  conservative: "70% 5J + 20% 3J + 10% 1J",
+  balanced: "40% 5J + 40% 3J + 20% 1J",
+  optimistic: "20% 5J + 30% 3J + 50% 1J",
 };
 
 export function SparplanSimulator({ positions, monthlyTotal }: Props) {
   const [startAmount, setStartAmount] = useState(0);
   const [years, setYears] = useState(10);
-  const [period, setPeriod] = useState<Period>("3y");
+  const [scenario, setScenario] = useState<Scenario>("balanced");
 
-  const returns = useMemo(() => ({
-    "1y": getWeightedReturn(positions, "1y"),
-    "3y": getWeightedReturn(positions, "3y"),
-    "5y": getWeightedReturn(positions, "5y"),
-  }), [positions]);
+  const annualReturn = useMemo(
+    () => getWeightedReturn(positions, scenario),
+    [positions, scenario]
+  );
 
-  const annualReturn = returns[period];
   const hasReturnData = positions.some((p) => p.etfData && (p.etfData.return_1y || p.etfData.return_3y || p.etfData.return_5y));
 
   const data = useMemo(
@@ -170,15 +181,16 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
           </div>
         </div>
         <div className="sparplan-field">
-          <label>Basis</label>
+          <label>Szenario</label>
           <div className="period-buttons">
-            {(["1y", "3y", "5y"] as Period[]).map((p) => (
+            {(["conservative", "balanced", "optimistic"] as Scenario[]).map((s) => (
               <button
-                key={p}
-                className={`period-btn ${period === p ? "period-btn--active" : ""}`}
-                onClick={() => setPeriod(p)}
+                key={s}
+                className={`period-btn ${scenario === s ? "period-btn--active" : ""}`}
+                onClick={() => setScenario(s)}
+                title={SCENARIO_DESC[s]}
               >
-                {PERIOD_LABELS[p]}
+                {SCENARIO_LABELS[s]}
               </button>
             ))}
           </div>
