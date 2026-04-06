@@ -70,6 +70,13 @@ function App() {
               positions={positions}
             />
 
+            {aggregated.coverage < 100 && (
+              <div className="coverage-hint">
+                Allokationsdaten verfügbar für {aggregated.coverage}% des Portfolios.
+                Swap-ETFs haben oft keine Aufschlüsselung.
+              </div>
+            )}
+
             <section className="charts-grid">
               <AllocationChart
                 title="Länder-Allokation"

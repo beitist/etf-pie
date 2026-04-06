@@ -83,4 +83,5 @@ export interface AggregatedData {
   sectors: Allocation[];
   holdings: Allocation[];
   marketCap: MarketCap;
+  coverage: number; // % of portfolio that has allocation data (0-100)
 }

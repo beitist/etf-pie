@@ -361,6 +361,17 @@ body {
   padding: 2rem;
 }
 
+/* Coverage Hint */
+.coverage-hint {
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: #1e40af;
+}
+
 /* Warning Banner */
 .warning-banner {
   background: #fef3c7;

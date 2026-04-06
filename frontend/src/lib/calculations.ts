@@ -3,22 +3,34 @@ import type { AggregatedData, Allocation, MarketCap, Position } from "../types";
 export function aggregatePortfolio(positions: Position[]): AggregatedData {
   const activePositions = positions.filter((p) => p.etfData && p.weight > 0);
 
+  // Calculate coverage: % of portfolio that has country data
+  const totalWeight = activePositions.reduce((s, p) => s + p.weight, 0);
+  const coveredWeight = activePositions
+    .filter((p) => p.etfData!.countries.length > 0)
+    .reduce((s, p) => s + p.weight, 0);
+  const coverage = totalWeight > 0 ? Math.round((coveredWeight / totalWeight) * 100) : 0;
+
+  // Only use positions that have data for allocation charts
+  const withCountries = activePositions.filter((p) => p.etfData!.countries.length > 0);
+  const withSectors = activePositions.filter((p) => p.etfData!.sectors.length > 0);
+  const withHoldings = activePositions.filter((p) => p.etfData!.holdings.length > 0);
+
   const countries = aggregateAllocations(
-    activePositions.map((p) => ({
+    withCountries.map((p) => ({
       weight: p.weight / 100,
       items: p.etfData!.countries,
     }))
   );
 
   const sectors = aggregateAllocations(
-    activePositions.map((p) => ({
+    withSectors.map((p) => ({
       weight: p.weight / 100,
       items: p.etfData!.sectors,
     }))
   );
 
   const holdings = aggregateAllocations(
-    activePositions.map((p) => ({
+    withHoldings.map((p) => ({
       weight: p.weight / 100,
       items: p.etfData!.holdings.map((h) => ({
         name: h.name,
@@ -29,7 +41,7 @@ export function aggregatePortfolio(positions: Position[]): AggregatedData {
 
   const marketCap = aggregateMarketCap(activePositions);
 
-  return { countries, sectors, holdings, marketCap };
+  return { countries, sectors, holdings, marketCap, coverage };
 }
 
 function aggregateAllocations(
