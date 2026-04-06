@@ -21,7 +21,6 @@ from scraper.db import (
     mark_requested,
     search_etfs,
 )
-from scraper.etfdb import load_etfdb
 from scraper.justetf import scrape_etf_profile
 from scraper.xetra import load_xetra_instruments
 
@@ -47,7 +46,7 @@ _preload_progress: dict = {
 }
 
 
-# ─── Startup: Xetra → etfdb → background scraper ────────────────────────
+# ─── Startup: Xetra → background scraper ─────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
@@ -58,21 +57,16 @@ async def _startup_pipeline():
     _preload_progress["status"] = "loading"
 
     try:
-        # Step 1: Xetra instrument list (ISIN, WKN, short names)
+        # Xetra instrument list (ISIN, WKN, short names)
         _preload_progress["phase"] = "Xetra-Liste laden..."
         xetra_count = await load_xetra_instruments(_preload_progress)
         log.info(f"Startup: {xetra_count} ETFs from Xetra")
-
-        # Step 2: etfdb (fills in allocations, TER, etc.)
-        _preload_progress["phase"] = "etfdb-Daten mergen..."
-        etfdb_count = await load_etfdb(_preload_progress)
-        log.info(f"Startup: {etfdb_count} ETFs from etfdb")
 
         stats = get_stats()
         _preload_progress["total"] = stats["total"]
         _preload_progress["done"] = stats["total"]
         _preload_progress["status"] = "done"
-        _preload_progress["phase"] = f"{stats['total']} ETFs geladen ({stats['with_countries']} mit Allokation)"
+        _preload_progress["phase"] = f"{stats['total']} ETFs geladen"
 
     except Exception as e:
         log.error(f"Startup failed: {e}", exc_info=True)
@@ -80,20 +74,19 @@ async def _startup_pipeline():
         _preload_progress["status"] = "done"
         _preload_progress["phase"] = f"Fehler: {e}"
 
-    # Step 3: Start background scraper
+    # Start background scraper
     asyncio.create_task(_background_scraper())
 
 
 async def _background_scraper():
-    """Refresh justETF data for user-requested ETFs older than 24h."""
-    await asyncio.sleep(30)  # Wait for startup to finish
-    log.info("Background scraper started (only refreshes user-requested ETFs)")
+    """Refresh justETF data for user-requested ETFs older than 48h."""
+    await asyncio.sleep(30)
+    log.info("Background scraper started (refreshes user-requested ETFs every 48h)")
 
     while True:
         try:
-            candidates = get_stale_requested(max_age_hours=168, limit=5)  # 7 days
+            candidates = get_stale_requested(max_age_hours=48, limit=5)
             if not candidates:
-                # Nothing to refresh, check again in 5 min
                 await asyncio.sleep(300)
                 continue
 
