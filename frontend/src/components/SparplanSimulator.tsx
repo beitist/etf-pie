@@ -72,33 +72,61 @@ function getWeightedReturn(positions: Position[], scenario: Scenario): number {
   return coveredWeight > 0 ? weightedReturn / coveredWeight : 0;
 }
 
+interface SimResult {
+  points: YearPoint[];
+  totalTax: number;
+}
+
 function simulate(
   startAmount: number,
   monthly: number,
   years: number,
   annualReturn: number,
-  annualContribIncrease: number = 0
-): YearPoint[] {
+  annualContribIncrease: number = 0,
+  withTax: boolean = false
+): SimResult {
   const monthlyRate = annualReturn / 100 / 12;
-  const points: YearPoint[] = [{ year: 0, deposits: startAmount, value: startAmount }];
+  const points: YearPoint[] = [
+    { year: 0, deposits: startAmount, value: startAmount },
+  ];
   let value = startAmount;
   let deposits = startAmount;
   let currentMonthly = monthly;
+  let totalTax = 0;
 
-  for (let month = 1; month <= years * 12; month++) {
-    value = value * (1 + monthlyRate) + currentMonthly;
-    deposits += currentMonthly;
-    if (month % 12 === 0) {
-      // Increase contribution at year boundary
-      currentMonthly = currentMonthly * (1 + annualContribIncrease / 100);
-      points.push({
-        year: month / 12,
-        deposits: Math.round(deposits),
-        value: Math.round(value),
-      });
+  for (let year = 1; year <= years; year++) {
+    const valueStart = value;
+    let yearContrib = 0;
+
+    for (let m = 0; m < 12; m++) {
+      value = value * (1 + monthlyRate) + currentMonthly;
+      deposits += currentMonthly;
+      yearContrib += currentMonthly;
     }
+
+    // Yearly tax: gain = end - start - contributions
+    if (withTax) {
+      const yearGain = value - valueStart - yearContrib;
+      if (yearGain > 0) {
+        const afterTeilfreistellung = yearGain * (1 - TEILFREISTELLUNG_AKTIEN);
+        const taxableGain = Math.max(0, afterTeilfreistellung - SPARERPAUSCHBETRAG);
+        const tax = taxableGain * ABGELTUNGSSTEUER;
+        value -= tax;
+        totalTax += tax;
+      }
+    }
+
+    points.push({
+      year,
+      deposits: Math.round(deposits),
+      value: Math.round(value),
+    });
+
+    // Increase contribution at year boundary (after tax for next year)
+    currentMonthly = currentMonthly * (1 + annualContribIncrease / 100);
   }
-  return points;
+
+  return { points, totalTax };
 }
 
 function formatEuro(value: number): string {
@@ -122,7 +150,6 @@ const SPARERPAUSCHBETRAG = 1000; // €/year per person
 const ABGELTUNGSSTEUER = 0.26375; // 25% + 5.5% Soli (without church tax)
 const TEILFREISTELLUNG_AKTIEN = 0.30; // 30% of equity ETF gains tax-free
 // Effective tax rate on equity ETF gains: 26.375% × 70% = 18.4625%
-const EFFECTIVE_TAX_RATE = ABGELTUNGSSTEUER * (1 - TEILFREISTELLUNG_AKTIEN);
 
 const DEFAULT_INFLATION = 2.5;
 
@@ -156,21 +183,17 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
 
   const contribIncrease = adjustContribution ? inflation : 0;
 
-  const data = useMemo(
-    () => simulate(startAmount, monthlyTotal, years, annualReturn, contribIncrease),
-    [startAmount, monthlyTotal, years, annualReturn, contribIncrease]
+  const sim = useMemo(
+    () => simulate(startAmount, monthlyTotal, years, annualReturn, contribIncrease, showTax),
+    [startAmount, monthlyTotal, years, annualReturn, contribIncrease, showTax]
   );
 
+  const data = sim.points;
   const endValue = data[data.length - 1]?.value ?? 0;
   const totalDeposits = data[data.length - 1]?.deposits ?? 0;
-  const gains = endValue - totalDeposits;
-
-  // Tax calculation: Sparerpauschbetrag (1000€/year × years used)
-  // Simplified: assume sale at the end, all gains taxed in one go,
-  // freibetrag accumulated over holding period
-  const taxableGains = Math.max(0, gains - SPARERPAUSCHBETRAG * years);
-  const taxAmount = showTax ? taxableGains * EFFECTIVE_TAX_RATE : 0;
-  const afterTax = endValue - taxAmount;
+  const taxAmount = sim.totalTax;
+  const gains = endValue + taxAmount - totalDeposits; // gross gains before tax
+  const afterTax = endValue; // already tax-deducted in simulate
 
   // Inflation: real value = nominal / (1+inflation)^years
   const inflationFactor = showInflation
@@ -343,14 +366,25 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="year" tickFormatter={(v) => `${v}J`} />
+          <XAxis
+            dataKey="year"
+            tickFormatter={(v) => {
+              const d = new Date();
+              d.setFullYear(d.getFullYear() + v);
+              return d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+            }}
+          />
           <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
           <Tooltip
             formatter={(value, name) => [
               formatEuro(Number(value)),
               name === "value" ? "Portfoliowert" : "Eingezahlt",
             ]}
-            labelFormatter={(label) => `Jahr ${label}`}
+            labelFormatter={(label) => {
+              const d = new Date();
+              d.setFullYear(d.getFullYear() + Number(label));
+              return d.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+            }}
           />
           <Area
             type="monotone"
