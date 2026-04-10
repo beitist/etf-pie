@@ -113,10 +113,22 @@ const SCENARIO_DESC: Record<Scenario, string> = {
   optimistic: "20% 5J + 30% 3J + 50% 1J",
 };
 
+// German tax constants
+const SPARERPAUSCHBETRAG = 1000; // €/year per person
+const ABGELTUNGSSTEUER = 0.26375; // 25% + 5.5% Soli (without church tax)
+const TEILFREISTELLUNG_AKTIEN = 0.30; // 30% of equity ETF gains tax-free
+// Effective tax rate on equity ETF gains: 26.375% × 70% = 18.4625%
+const EFFECTIVE_TAX_RATE = ABGELTUNGSSTEUER * (1 - TEILFREISTELLUNG_AKTIEN);
+
+const DEFAULT_INFLATION = 2.5;
+
 export function SparplanSimulator({ positions, monthlyTotal }: Props) {
   const [startAmount, setStartAmount] = useState(0);
   const [years, setYears] = useState(10);
   const [scenario, setScenario] = useState<Scenario>("balanced");
+  const [showInflation, setShowInflation] = useState(true);
+  const [inflation, setInflation] = useState(DEFAULT_INFLATION);
+  const [showTax, setShowTax] = useState(true);
 
   const DEFAULT_RETURN = 5; // conservative fallback for ETFs without data
 
@@ -145,6 +157,20 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
   const endValue = data[data.length - 1]?.value ?? 0;
   const totalDeposits = data[data.length - 1]?.deposits ?? 0;
   const gains = endValue - totalDeposits;
+
+  // Tax calculation: Sparerpauschbetrag (1000€/year × years used)
+  // Simplified: assume sale at the end, all gains taxed in one go,
+  // freibetrag accumulated over holding period
+  const taxableGains = Math.max(0, gains - SPARERPAUSCHBETRAG * years);
+  const taxAmount = showTax ? taxableGains * EFFECTIVE_TAX_RATE : 0;
+  const afterTax = endValue - taxAmount;
+
+  // Inflation: real value = nominal / (1+inflation)^years
+  const inflationFactor = showInflation
+    ? Math.pow(1 + inflation / 100, years)
+    : 1;
+  const realValue = afterTax / inflationFactor;
+  const realDeposits = totalDeposits / inflationFactor;
 
   return (
     <div className="chart-card sparplan-card">
@@ -215,6 +241,37 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
         </div>
       </div>
 
+      <div className="sparplan-toggles">
+        <label className="toggle-field">
+          <input
+            type="checkbox"
+            checked={showTax}
+            onChange={(e) => setShowTax(e.target.checked)}
+          />
+          <span>Kapitalertragssteuer (DE: 26.375% mit 30% Teilfreistellung)</span>
+        </label>
+        <label className="toggle-field">
+          <input
+            type="checkbox"
+            checked={showInflation}
+            onChange={(e) => setShowInflation(e.target.checked)}
+          />
+          <span>Inflation berücksichtigen</span>
+          {showInflation && (
+            <input
+              type="number"
+              value={inflation}
+              onChange={(e) => setInflation(Number(e.target.value) || 0)}
+              step={0.1}
+              min={0}
+              max={20}
+              className="inflation-input"
+            />
+          )}
+          {showInflation && <span className="unit">% p.a.</span>}
+        </label>
+      </div>
+
       <div className="sparplan-summary">
         <div className="summary-item">
           <span className="summary-label">Gew. Rendite p.a.</span>
@@ -233,9 +290,35 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
           </span>
         </div>
         <div className="summary-item">
-          <span className="summary-label">Endsumme</span>
+          <span className="summary-label">Endsumme (brutto)</span>
           <span className="summary-value total">{formatEuro(endValue)}</span>
         </div>
+        {showTax && (
+          <div className="summary-item">
+            <span className="summary-label">Steuer (DE)</span>
+            <span className="summary-value negative">−{formatEuro(taxAmount)}</span>
+          </div>
+        )}
+        {showTax && (
+          <div className="summary-item">
+            <span className="summary-label">Nach Steuer</span>
+            <span className="summary-value total">{formatEuro(afterTax)}</span>
+          </div>
+        )}
+        {showInflation && (
+          <div className="summary-item">
+            <span className="summary-label">
+              Kaufkraft heute ({inflation}% Infl.)
+            </span>
+            <span className="summary-value total">{formatEuro(realValue)}</span>
+          </div>
+        )}
+        {showInflation && (
+          <div className="summary-item">
+            <span className="summary-label">Reale Einzahlung heute</span>
+            <span className="summary-value">{formatEuro(realDeposits)}</span>
+          </div>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={280}>

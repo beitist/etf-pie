@@ -725,6 +725,40 @@ body {
   color: #334155;
 }
 
+/* Sparplan toggles */
+.sparplan-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.toggle-field input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.inflation-input {
+  width: 60px;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+}
+
 /* Preload Modal */
 .preload-overlay {
   position: fixed;
