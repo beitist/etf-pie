@@ -76,17 +76,21 @@ function simulate(
   startAmount: number,
   monthly: number,
   years: number,
-  annualReturn: number
+  annualReturn: number,
+  annualContribIncrease: number = 0
 ): YearPoint[] {
   const monthlyRate = annualReturn / 100 / 12;
   const points: YearPoint[] = [{ year: 0, deposits: startAmount, value: startAmount }];
   let value = startAmount;
   let deposits = startAmount;
+  let currentMonthly = monthly;
 
   for (let month = 1; month <= years * 12; month++) {
-    value = value * (1 + monthlyRate) + monthly;
-    deposits += monthly;
+    value = value * (1 + monthlyRate) + currentMonthly;
+    deposits += currentMonthly;
     if (month % 12 === 0) {
+      // Increase contribution at year boundary
+      currentMonthly = currentMonthly * (1 + annualContribIncrease / 100);
       points.push({
         year: month / 12,
         deposits: Math.round(deposits),
@@ -129,6 +133,7 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
   const [showInflation, setShowInflation] = useState(true);
   const [inflation, setInflation] = useState(DEFAULT_INFLATION);
   const [showTax, setShowTax] = useState(true);
+  const [adjustContribution, setAdjustContribution] = useState(true);
 
   const DEFAULT_RETURN = 5; // conservative fallback for ETFs without data
 
@@ -149,9 +154,11 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
 
   const hasReturnData = withData.length > 0;
 
+  const contribIncrease = adjustContribution ? inflation : 0;
+
   const data = useMemo(
-    () => simulate(startAmount, monthlyTotal, years, annualReturn),
-    [startAmount, monthlyTotal, years, annualReturn]
+    () => simulate(startAmount, monthlyTotal, years, annualReturn, contribIncrease),
+    [startAmount, monthlyTotal, years, annualReturn, contribIncrease]
   );
 
   const endValue = data[data.length - 1]?.value ?? 0;
@@ -269,6 +276,18 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
             />
           )}
           {showInflation && <span className="unit">% p.a.</span>}
+        </label>
+        <label className="toggle-field">
+          <input
+            type="checkbox"
+            checked={adjustContribution}
+            onChange={(e) => setAdjustContribution(e.target.checked)}
+            disabled={!showInflation}
+          />
+          <span>
+            Sparrate jährlich an Inflation anpassen
+            {adjustContribution && showInflation && ` (+${inflation}% p.a.)`}
+          </span>
         </label>
       </div>
 
