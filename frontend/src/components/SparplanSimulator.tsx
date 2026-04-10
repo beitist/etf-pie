@@ -10,7 +10,9 @@ import {
 } from "recharts";
 import type { Position } from "../types";
 
-type Scenario = "conservative" | "balanced" | "optimistic";
+type Scenario = "historical" | "conservative" | "balanced" | "optimistic";
+
+const HISTORICAL_RETURN = 8.0; // long-term DAX/global stocks since ~1950
 
 interface Props {
   positions: Position[];
@@ -25,6 +27,7 @@ interface YearPoint {
 
 // Weights for blending return periods per scenario
 const SCENARIO_WEIGHTS: Record<Scenario, { w1y: number; w3y: number; w5y: number }> = {
+  historical:   { w1y: 0,   w3y: 0,   w5y: 0   }, // unused, fixed rate
   conservative: { w1y: 0.1, w3y: 0.2, w5y: 0.7 },
   balanced:     { w1y: 0.2, w3y: 0.4, w5y: 0.4 },
   optimistic:   { w1y: 0.5, w3y: 0.3, w5y: 0.2 },
@@ -55,6 +58,9 @@ function getBlendedReturn(d: Position["etfData"], scenario: Scenario): number {
 }
 
 function getWeightedReturn(positions: Position[], scenario: Scenario): number {
+  // Historical scenario uses a fixed long-term average instead of ETF data
+  if (scenario === "historical") return HISTORICAL_RETURN;
+
   let weightedReturn = 0;
   let coveredWeight = 0;
 
@@ -134,12 +140,14 @@ function formatEuro(value: number): string {
 }
 
 const SCENARIO_LABELS: Record<Scenario, string> = {
+  historical: "Historisch (8%)",
   conservative: "Konservativ",
   balanced: "Ausgewogen",
   optimistic: "Optimistisch",
 };
 
 const SCENARIO_DESC: Record<Scenario, string> = {
+  historical: "Langfristiger Schnitt globaler Aktien (DAX seit 1950: ~8% p.a.)",
   conservative: "70% 5J + 20% 3J + 10% 1J",
   balanced: "40% 5J + 40% 3J + 20% 1J",
   optimistic: "20% 5J + 30% 3J + 50% 1J",
@@ -257,7 +265,7 @@ export function SparplanSimulator({ positions, monthlyTotal }: Props) {
         <div className="sparplan-field">
           <label>Szenario</label>
           <div className="period-buttons">
-            {(["conservative", "balanced", "optimistic"] as Scenario[]).map((s) => (
+            {(["historical", "conservative", "balanced", "optimistic"] as Scenario[]).map((s) => (
               <button
                 key={s}
                 className={`period-btn ${scenario === s ? "period-btn--active" : ""}`}
